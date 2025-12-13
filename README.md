@@ -11,7 +11,11 @@ CRM + automação de campanhas no WhatsApp (Cloud API), com fila/workflows (Upst
 
 <p align="center">
    <a href="docs/GUIA_DE_INSTALACAO.md">
-      <img alt="Guia de Instalação" src="https://img.shields.io/badge/GUIA%20DE%20INSTALA%C3%87%C3%83O-CLIQUE%20AQUI-22c55e?style=for-the-badge" />
+      <img
+         alt="Guia de Instalação — Clique aqui"
+         src="docs/assets/guia-instalacao-banner.svg"
+         width="920"
+      />
    </a>
 </p>
 
