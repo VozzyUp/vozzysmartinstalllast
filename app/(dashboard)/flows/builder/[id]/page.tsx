@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FlowBuilderCanvas } from '@/components/features/flows/builder/FlowBuilderCanvas'
 import { FlowFormBuilder } from '@/components/features/flows/builder/FlowFormBuilder'
 import { FlowJsonEditorPanel } from '@/components/features/flows/builder/FlowJsonEditorPanel'
+import { TemplateModelPreviewCard } from '@/components/ui/TemplateModelPreviewCard'
+import { MetaFlowPreview } from '@/components/ui/MetaFlowPreview'
 import { useFlowEditorController } from '@/hooks/useFlowEditor'
 
 export default function FlowBuilderEditorPage({
@@ -28,6 +30,55 @@ export default function FlowBuilderEditorPage({
 
   const [name, setName] = React.useState('')
   const [metaFlowId, setMetaFlowId] = React.useState<string>('')
+  const [previewMode, setPreviewMode] = React.useState<'smartzap' | 'meta'>('meta')
+  const [formPreviewJson, setFormPreviewJson] = React.useState<unknown>(null)
+  const [formPreview, setFormPreview] = React.useState<{
+    title: string
+    intro?: string
+    submitLabel?: string
+    questions: Array<{ label: string; required: boolean }>
+  } | null>(null)
+
+  const handleFormPreviewChange = React.useCallback(
+    ({ form, generatedJson }: { form: any; generatedJson: unknown }) => {
+      setFormPreviewJson(generatedJson)
+      setFormPreview({
+        title: form?.title || '',
+        intro: form?.intro || '',
+        submitLabel: form?.submitLabel || '',
+        questions: Array.isArray(form?.fields)
+          ? form.fields.map((f: any) => ({
+              label: String(f?.label || 'Pergunta'),
+              required: !!f?.required,
+            }))
+          : [],
+      })
+    },
+    [],
+  )
+
+  const previewBody = React.useMemo(() => {
+    const title = (formPreview?.title || name || 'Formulário').trim()
+    const intro = (formPreview?.intro || '').trim()
+    const questions = formPreview?.questions || []
+
+    if (!questions.length && !intro) return ''
+
+    const lines: string[] = []
+    if (title) lines.push(title)
+    if (intro) lines.push(intro)
+    if (questions.length) {
+      lines.push('')
+      lines.push('Perguntas:')
+      for (const [idx, q] of questions.slice(0, 8).entries()) {
+        lines.push(`${idx + 1}. ${q.label}${q.required ? ' *' : ''}`)
+      }
+      if (questions.length > 8) lines.push(`…e mais ${questions.length - 8} perguntas`)
+    }
+    return lines.join('\n')
+  }, [formPreview, name])
+
+  const previewButtonLabel = (formPreview?.submitLabel || '').trim() || 'Abrir formulário'
 
   React.useEffect(() => {
     if (!flow) return
@@ -123,17 +174,70 @@ export default function FlowBuilderEditorPage({
             </TabsList>
 
             <TabsContent value="form" className="space-y-4">
-              <FlowFormBuilder
-                flowName={name}
-                currentSpec={controller.spec}
-                isSaving={controller.isSaving}
-                onSave={(patch) => {
-                  controller.save({
-                    ...(patch.spec !== undefined ? { spec: patch.spec } : {}),
-                    ...(patch.flowJson !== undefined ? { flowJson: patch.flowJson } : {}),
-                  })
-                }}
-              />
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="lg:col-span-8 space-y-4 min-w-0">
+                  <FlowFormBuilder
+                    flowName={name}
+                    currentSpec={controller.spec}
+                    isSaving={controller.isSaving}
+                    onPreviewChange={handleFormPreviewChange as any}
+                    onSave={(patch) => {
+                      controller.save({
+                        ...(patch.spec !== undefined ? { spec: patch.spec } : {}),
+                        ...(patch.flowJson !== undefined ? { flowJson: patch.flowJson } : {}),
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="hidden lg:flex lg:col-span-4 border-l border-zinc-200/10 pl-6 flex-col min-h-0">
+                  <div className="sticky top-6">
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode('smartzap')}
+                        className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${previewMode === 'smartzap'
+                          ? 'border-white/20 bg-white/10 text-white'
+                          : 'border-white/10 bg-zinc-900 text-zinc-300 hover:bg-white/5'
+                          }`}
+                      >
+                        Padrão SmartZap
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode('meta')}
+                        className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${previewMode === 'meta'
+                          ? 'border-white/20 bg-white/10 text-white'
+                          : 'border-white/10 bg-zinc-900 text-zinc-300 hover:bg-white/5'
+                          }`}
+                      >
+                        Meta (oficial)
+                      </button>
+                    </div>
+
+                    {previewMode === 'smartzap' ? (
+                      <TemplateModelPreviewCard
+                        title="Prévia do modelo"
+                        businessName="Business"
+                        contextLabel="flow"
+                        headerLabel={null}
+                        bodyText={previewBody}
+                        emptyBodyText="Adicione perguntas para ver a prévia."
+                        buttons={[
+                          {
+                            type: 'FLOW',
+                            text: previewButtonLabel,
+                          },
+                        ]}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center">
+                        <MetaFlowPreview flowJson={formPreviewJson || (flow as any).flow_json} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="visual">

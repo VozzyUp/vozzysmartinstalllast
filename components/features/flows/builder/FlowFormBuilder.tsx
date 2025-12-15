@@ -36,8 +36,6 @@ import {
   validateFlowFormSpec,
 } from '@/lib/flow-form'
 
-import { FlowPhonePreview } from '@/components/ui/FlowPhonePreview'
-
 const FIELD_TYPE_LABEL: Record<FlowFormFieldType, string> = {
   short_text: 'Texto curto',
   long_text: 'Texto longo',
@@ -54,7 +52,8 @@ const FIELD_TYPE_LABEL: Record<FlowFormFieldType, string> = {
 function newField(type: FlowFormFieldType): any {
   const id = `q_${nanoid(8)}`
   const baseLabel = type === 'optin' ? 'Quero receber novidades' : 'Nova pergunta'
-  const name = normalizeFlowFieldName(baseLabel) || `campo_${nanoid(4)}`
+  const baseSlug = normalizeFlowFieldName(baseLabel) || 'campo'
+  const name = `${baseSlug}_${nanoid(4)}`
 
   const f: any = {
     id,
@@ -95,6 +94,12 @@ export function FlowFormBuilder(props: {
   currentSpec: unknown
   isSaving: boolean
   onSave: (patch: { spec: unknown; flowJson: unknown }) => void
+  onPreviewChange?: (payload: {
+    form: FlowFormSpecV1
+    generatedJson: unknown
+    issues: string[]
+    dirty: boolean
+  }) => void
 }) {
   const initialForm = useMemo(() => {
     const s = (props.currentSpec as any) || {}
@@ -111,6 +116,15 @@ export function FlowFormBuilder(props: {
 
   const issues = useMemo(() => validateFlowFormSpec(form), [form])
   const generatedJson = useMemo(() => generateFlowJsonFromFormSpec(form), [form])
+
+  useEffect(() => {
+    props.onPreviewChange?.({
+      form,
+      generatedJson,
+      issues,
+      dirty,
+    })
+  }, [dirty, form, generatedJson, issues, props.onPreviewChange])
 
   const canSave = issues.length === 0 && dirty && !props.isSaving
 
@@ -139,7 +153,7 @@ export function FlowFormBuilder(props: {
       const copy = {
         ...f,
         id: `q_${nanoid(8)}`,
-        name: normalizeFlowFieldName(`${f.name}_copy`) || `campo_${nanoid(4)}`,
+        name: normalizeFlowFieldName(`${f.name}_copy_${nanoid(3)}`) || `campo_${nanoid(4)}`,
       }
       const fields = [...prev.fields]
       fields.splice(idx + 1, 0, copy)
@@ -197,16 +211,15 @@ export function FlowFormBuilder(props: {
             <div>
               <div className="font-medium">Ajustes necessários</div>
               <ul className="mt-1 list-disc pl-5 text-xs text-amber-200/80">
-                {issues.slice(0, 6).map((i) => (
-                  <li key={i}>{i}</li>
+                {issues.slice(0, 6).map((i, idx) => (
+                  <li key={`${i}__${idx}`}>{i}</li>
                 ))}
               </ul>
             </div>
           </div>
         ) : null}
 
-        <div className="mt-3 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
-          <div className="space-y-3">
+        <div className="mt-3 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Título</label>
@@ -247,50 +260,32 @@ export function FlowFormBuilder(props: {
                 </Select>
               </div>
             </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-white/10 bg-zinc-950/20 p-4">
+          <div className="text-sm font-semibold text-white">Status</div>
+          <div className="mt-2 text-sm text-gray-400">
+            {dirty ? 'Alterações não salvas' : 'Sincronizado'}
+            {issues.length === 0 ? (
+              <span className="text-emerald-300"> • pronto</span>
+            ) : (
+              <span className="text-amber-300"> • revisar</span>
+            )}
           </div>
 
-          <div className="space-y-3">
-            <div className="hidden lg:block">
-              <div className="sticky top-6">
-                <div className="text-xs uppercase tracking-widest font-bold text-gray-400 flex items-center justify-center">
-                  Prévia do Flow
-                </div>
-                <div className="mt-3">
-                  <FlowPhonePreview
-                    flowJson={generatedJson}
-                    businessName="SmartZap Business"
-                    size="md"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-zinc-950/20 p-4">
-              <div className="text-sm font-semibold text-white">Status</div>
-              <div className="mt-2 text-sm text-gray-400">
-                {dirty ? 'Alterações não salvas' : 'Sincronizado'}
-                {issues.length === 0 ? (
-                  <span className="text-emerald-300"> • pronto</span>
-                ) : (
-                  <span className="text-amber-300"> • revisar</span>
-                )}
-              </div>
-
-              <div className="mt-3 text-[11px] text-gray-500">
-                Este modo cria o JSON no padrão usado pelos templates internos (sem endpoint).
-              </div>
-
-              <Button
-                type="button"
-                className="mt-3 w-full"
-                disabled={!canSave}
-                onClick={save}
-              >
-                <Save className="h-4 w-4" />
-                Salvar
-              </Button>
-            </div>
+          <div className="mt-3 text-[11px] text-gray-500">
+            Este modo cria o JSON no padrão usado pelos templates internos (sem endpoint).
           </div>
+
+          <Button
+            type="button"
+            className="mt-3 w-full"
+            disabled={!canSave}
+            onClick={save}
+          >
+            <Save className="h-4 w-4" />
+            Salvar
+          </Button>
         </div>
       </div>
 

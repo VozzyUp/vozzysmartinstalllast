@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, HelpCircle, Save, RefreshCw, Wifi, Edit2, Shield, AlertCircle, UserCheck, Smartphone, X, Copy, Check, ExternalLink, Webhook, Clock, Phone, Trash2, Loader2, ChevronDown, ChevronUp, Zap, ArrowDown, CheckCircle2, Circle, Lock, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
@@ -7,6 +7,7 @@ import { AccountLimits } from '../../../lib/meta-limits';
 import { PhoneNumber } from '../../../hooks/useSettings';
 import { AISettings } from './AISettings';
 import { formatPhoneNumberDisplay } from '../../../lib/phone-formatter';
+import { performanceService } from '../../../services/performanceService';
 
 interface WebhookStats {
   lastEventAt?: string | null;
@@ -255,6 +256,105 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     minIncreaseGapSec: turboConfig?.minIncreaseGapSec ?? 10,
     sendFloorDelayMs: turboConfig?.sendFloorDelayMs ?? 0,
   }));
+
+  // ---------------------------------------------------------------------------
+  // Turbo planner ("quero X msgs em Y segundos")
+  // ---------------------------------------------------------------------------
+  const [isTurboPlannerOpen, setIsTurboPlannerOpen] = useState(false);
+  const [plannerMessages, setPlannerMessages] = useState<number>(174);
+  const [plannerSeconds, setPlannerSeconds] = useState<number>(10);
+  const [plannerHeadroom, setPlannerHeadroom] = useState<number>(1.2);
+  const [plannerLatencyMs, setPlannerLatencyMs] = useState<number>(800);
+  const [plannerLatencyTouched, setPlannerLatencyTouched] = useState(false);
+  const [plannerLoadingBaseline, setPlannerLoadingBaseline] = useState(false);
+  const [plannerBaselineMetaMs, setPlannerBaselineMetaMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isTurboPlannerOpen) return;
+    if (plannerBaselineMetaMs != null) return;
+
+    let cancelled = false;
+    setPlannerLoadingBaseline(true);
+
+    performanceService
+      .getSettingsPerformance({ rangeDays: 30, limit: 100 })
+      .then((res) => {
+        const ms = Number(res?.totals?.meta_avg_ms?.median);
+        if (!Number.isFinite(ms) || ms <= 0) return;
+        if (cancelled) return;
+
+        setPlannerBaselineMetaMs(ms);
+        // Só auto-preenche se o usuário ainda não mexeu na latência.
+        if (!plannerLatencyTouched) {
+          setPlannerLatencyMs(Math.round(ms));
+        }
+      })
+      .catch(() => {
+        // best-effort
+      })
+      .finally(() => {
+        if (!cancelled) setPlannerLoadingBaseline(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isTurboPlannerOpen, plannerBaselineMetaMs, plannerLatencyTouched]);
+
+  const turboPlan = useMemo(() => {
+    const msgs = Math.max(1, Math.floor(Number(plannerMessages) || 0));
+    const secs = Math.max(1, Math.floor(Number(plannerSeconds) || 0));
+    const latencyMs = Math.max(50, Math.floor(Number(plannerLatencyMs) || 0));
+    const headroom = Math.min(2.5, Math.max(1.0, Number(plannerHeadroom) || 1.2));
+
+    const desiredMps = msgs / secs;
+    const latencyS = latencyMs / 1000;
+
+    // Concurrency necessário (Lei de Little + margem)
+    const rawConc = Math.ceil(desiredMps * latencyS * headroom);
+    const sendConcurrency = Math.max(1, Math.min(50, rawConc));
+
+    // batchSize: quanto maior, menos steps. Limite atual do sistema: 200.
+    const batchSize = Math.max(sendConcurrency, Math.min(200, msgs));
+
+    // Limiter: precisa deixar passar >= desiredMps.
+    // startMps define o "ponto de partida" (e o estado aprendido tende a se alinhar com ele após Reset).
+    const startMps = Math.max(1, Math.min(1000, Math.ceil(desiredMps * 1.05)));
+    const maxMps = Math.max(startMps, Math.min(1000, Math.ceil(desiredMps * 1.6)));
+
+    // Estimativa do teto pelo lado da concorrência (antes de limiters/429)
+    const concCeilingMps = latencyS > 0 ? (sendConcurrency / latencyS) : null;
+    const estimatedMpsInitial = concCeilingMps != null ? Math.min(startMps, concCeilingMps) : startMps;
+    const estimatedSeconds = estimatedMpsInitial > 0 ? (msgs / estimatedMpsInitial) : null;
+
+    const warnings: string[] = [];
+    if (desiredMps > 50) warnings.push('Meta muito agressiva: risco alto de 130429/limites de conta. Faça ramp-up e monitore.');
+    if (sendConcurrency >= 25) warnings.push('Concorrência alta. Monitore CPU/DB e observe se surgem 130429.');
+    if (plannerLatencyTouched && plannerBaselineMetaMs != null) warnings.push('Você ajustou a latência manualmente; a sugestão pode divergir do baseline do histórico.');
+    if (typeof turboState?.targetMps === 'number' && turboState.targetMps < startMps) {
+      warnings.push('O target atual está abaixo do startMps sugerido. Use “Resetar aprendizado” para alinhar o target ao novo startMps.');
+    }
+
+    return {
+      msgs,
+      secs,
+      latencyMs,
+      headroom,
+      desiredMps,
+      recommended: {
+        sendConcurrency,
+        batchSize,
+        startMps,
+        maxMps,
+      },
+      estimate: {
+        concCeilingMps,
+        estimatedMpsInitial,
+        estimatedSeconds,
+      },
+      warnings,
+    };
+  }, [plannerMessages, plannerSeconds, plannerLatencyMs, plannerHeadroom, plannerLatencyTouched, plannerBaselineMetaMs, turboState?.targetMps]);
 
   // Auto-supressão form state
   const autoConfig = autoSuppression?.config;
@@ -1011,6 +1111,173 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Planner: "quero X msgs em Y segundos" */}
+            <div className="mt-4 bg-zinc-900/30 border border-white/10 rounded-2xl">
+              <button
+                type="button"
+                onClick={() => setIsTurboPlannerOpen((v) => !v)}
+                className="w-full px-5 py-4 flex items-center justify-between gap-3"
+              >
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Planejador de disparo</div>
+                  <div className="text-xs text-gray-400">Diga "quantas mensagens" e "em quanto tempo" e eu sugiro a config.</div>
+                </div>
+                <div className="text-gray-400">
+                  {isTurboPlannerOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </div>
+              </button>
+
+              {isTurboPlannerOpen && (
+                <div className="px-5 pb-5">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Mensagens</label>
+                      <input
+                        type="number"
+                        value={plannerMessages}
+                        onChange={(e) => setPlannerMessages(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-sm text-white font-mono"
+                        min={1}
+                        max={100000}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Tempo alvo (seg)</label>
+                      <input
+                        type="number"
+                        value={plannerSeconds}
+                        onChange={(e) => setPlannerSeconds(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-sm text-white font-mono"
+                        min={1}
+                        max={3600}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Latência estimada (ms)</label>
+                      <input
+                        type="number"
+                        value={plannerLatencyMs}
+                        onChange={(e) => {
+                          setPlannerLatencyTouched(true);
+                          setPlannerLatencyMs(Number(e.target.value));
+                        }}
+                        className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-sm text-white font-mono"
+                        min={50}
+                        max={5000}
+                      />
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        {plannerLoadingBaseline
+                          ? 'Buscando baseline…'
+                          : (plannerBaselineMetaMs != null
+                            ? `baseline (mediana): ~${Math.round(plannerBaselineMetaMs)}ms`
+                            : 'baseline indisponível (use um chute)')}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Margem (headroom)</label>
+                      <input
+                        type="number"
+                        value={plannerHeadroom}
+                        onChange={(e) => setPlannerHeadroom(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-sm text-white font-mono"
+                        min={1.0}
+                        max={2.5}
+                        step={0.05}
+                      />
+                      <div className="mt-1 text-[11px] text-gray-500">1.2 = folga padrão</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+                      <div className="text-xs text-gray-500">Meta</div>
+                      <div className="mt-2 text-sm text-white">
+                        {turboPlan.msgs} msgs em {turboPlan.secs}s
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        Precisa de <span className="font-mono text-white">{turboPlan.desiredMps.toFixed(2)}</span> mps
+                      </div>
+                      <div className="mt-2 text-[11px] text-gray-500">
+                        Regra prática: throughput ≈ concurrency / latência
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+                      <div className="text-xs text-gray-500">Sugestão de config</div>
+                      <div className="mt-2 text-xs text-gray-300 space-y-1">
+                        <div className="flex justify-between gap-3"><span className="text-gray-400">sendConcurrency</span><span className="font-mono text-white">{turboPlan.recommended.sendConcurrency}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-gray-400">batchSize</span><span className="font-mono text-white">{turboPlan.recommended.batchSize}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-gray-400">startMps</span><span className="font-mono text-white">{turboPlan.recommended.startMps}</span></div>
+                        <div className="flex justify-between gap-3"><span className="text-gray-400">maxMps</span><span className="font-mono text-white">{turboPlan.recommended.maxMps}</span></div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingTurbo(true);
+                            setTurboDraft((s) => ({
+                              ...s,
+                              sendConcurrency: turboPlan.recommended.sendConcurrency,
+                              batchSize: turboPlan.recommended.batchSize,
+                              startMps: turboPlan.recommended.startMps,
+                              maxMps: turboPlan.recommended.maxMps,
+                              // Mantemos minMps/cooldown/minIncreaseGap/sendFloorDelay como estão.
+                            }));
+                            toast.success('Sugestão aplicada no formulário do Turbo. Agora é só Salvar.');
+                          }}
+                          className="px-3 py-2 bg-white text-black font-semibold rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                        >
+                          Aplicar no Turbo
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPlannerMessages(174);
+                            setPlannerSeconds(10);
+                            toast.message('Exemplo carregado: 174 msgs em 10s');
+                          }}
+                          className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 border border-white/10 rounded-lg transition-colors text-sm text-white"
+                        >
+                          Exemplo 174/10s
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+                      <div className="text-xs text-gray-500">Estimativa</div>
+                      <div className="mt-2 text-xs text-gray-300 space-y-1">
+                        <div className="flex justify-between gap-3">
+                          <span className="text-gray-400">teto por concorrência</span>
+                          <span className="font-mono text-white">{turboPlan.estimate.concCeilingMps != null ? turboPlan.estimate.concCeilingMps.toFixed(2) : '—'} mps</span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-gray-400">mps inicial (com startMps)</span>
+                          <span className="font-mono text-white">{turboPlan.estimate.estimatedMpsInitial.toFixed(2)} mps</span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-gray-400">tempo estimado</span>
+                          <span className="font-mono text-white">{turboPlan.estimate.estimatedSeconds != null ? `${Math.ceil(turboPlan.estimate.estimatedSeconds)}s` : '—'}</span>
+                        </div>
+                      </div>
+
+                      {turboPlan.warnings.length > 0 && (
+                        <div className="mt-3 text-[11px] text-amber-300 space-y-1">
+                          {turboPlan.warnings.slice(0, 4).map((w, i) => (
+                            <div key={i}>• {w}</div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-3 text-[11px] text-gray-500">
+                        Nota: mesmo com config perfeita, o Meta pode aplicar limites e devolver <span className="font-mono">130429</span>. O Turbo existe pra achar o teto seguro.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {isEditingTurbo && (
