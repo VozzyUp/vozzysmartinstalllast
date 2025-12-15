@@ -8,7 +8,7 @@ import { precheckContactForTemplate } from '@/lib/whatsapp/template-contract'
 import { normalizePhoneNumber } from '@/lib/phone-formatter'
 import { getActiveSuppressionsByPhone } from '@/lib/phone-suppressions'
 
-import { ContactStatus } from '@/types'
+import { CampaignStatus, ContactStatus } from '@/types'
 
 interface DispatchContact {
   contactId?: string
@@ -91,7 +91,9 @@ export async function POST(request: NextRequest) {
   // Se o job veio do scheduler, só pode rodar se ainda estiver agendada.
   // Isso evita iniciar campanha após o usuário cancelar (best-effort, já que o cancelamento do job pode falhar).
   if (trigger === 'schedule') {
-    const isStillScheduled = String((campaignRow as any).status) === 'SCHEDULED'
+    const rawStatus = String((campaignRow as any).status || '').trim()
+    // Compat: status pode ser PT-BR (Agendado) ou legado (SCHEDULED)
+    const isStillScheduled = rawStatus === CampaignStatus.SCHEDULED || rawStatus.toUpperCase() === 'SCHEDULED'
     const scheduledDate = (campaignRow as any).scheduled_date as string | null
 
     if (!isStillScheduled || !scheduledDate) {
@@ -640,6 +642,45 @@ export async function POST(request: NextRequest) {
   // LEGACY WORKFLOW DISPATCH (for template-based campaigns)
   // =========================================================================
   try {
+    const markCampaignFailed = async (reason: string) => {
+      const now = new Date().toISOString()
+      const baseUpdate: Record<string, unknown> = {
+        status: CampaignStatus.FAILED,
+        completed_at: now,
+        updated_at: now,
+      }
+
+      // Segurança: evita transformar uma campanha já concluída/pausada em falha por acidente.
+      const eligibleStatuses = [CampaignStatus.SENDING, CampaignStatus.DRAFT, CampaignStatus.SCHEDULED]
+
+      // Tentamos gravar last_error quando a coluna existir. Se não existir, fallback sem ela.
+      try {
+        const { error } = await supabase
+          .from('campaigns')
+          .update({ ...baseUpdate, last_error: reason })
+          .eq('id', campaignId)
+          .in('status', eligibleStatuses)
+
+        if (error) {
+          const msg = String((error as any)?.message || '')
+          const isMissingCol = msg.toLowerCase().includes('does not exist') && msg.toLowerCase().includes('last_error')
+          if (!isMissingCol) {
+            console.warn('[Dispatch] Falha ao marcar campanha como falhou (com last_error):', error)
+          } else {
+            throw error
+          }
+        }
+      } catch (e) {
+        const { error } = await supabase
+          .from('campaigns')
+          .update(baseUpdate)
+          .eq('id', campaignId)
+          .in('status', eligibleStatuses)
+
+        if (error) console.warn('[Dispatch] Falha ao marcar campanha como falhou:', error)
+      }
+    }
+
     // Importante:
     // - Em preview/dev, precisamos disparar o workflow no MESMO origin do request.
     //   Caso contrário, acabamos chamando produção (versão/config diferente) e o usuário
@@ -707,6 +748,7 @@ export async function POST(request: NextRequest) {
     } else {
       // PROD: QStash is required
       if (!process.env.QSTASH_TOKEN) {
+        await markCampaignFailed('Serviço de workflow não configurado. Configure QSTASH_TOKEN.')
         return NextResponse.json(
           { error: 'Serviço de workflow não configurado. Configure QSTASH_TOKEN.' },
           { status: 503 }
@@ -732,6 +774,41 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error triggering workflow:', error)
     const errorMessage = error instanceof Error ? error.message : String(error)
+
+    // Evitar campanhas eternamente "Enviando" quando o enqueue falha.
+    try {
+      const now = new Date().toISOString()
+      const baseUpdate: Record<string, unknown> = {
+        status: CampaignStatus.FAILED,
+        completed_at: now,
+        updated_at: now,
+      }
+
+      const eligibleStatuses = [CampaignStatus.SENDING, CampaignStatus.DRAFT, CampaignStatus.SCHEDULED]
+
+      // Best-effort: tenta gravar last_error quando existir.
+      let { error: updErr } = await supabase
+        .from('campaigns')
+        .update({ ...baseUpdate, last_error: `Falha ao iniciar workflow: ${errorMessage}` })
+        .eq('id', campaignId)
+        .in('status', eligibleStatuses)
+
+      if (updErr) {
+        const msg = String((updErr as any)?.message || '').toLowerCase()
+        const isMissingCol = msg.includes('does not exist') && msg.includes('last_error')
+        if (isMissingCol) {
+          ;({ error: updErr } = await supabase
+            .from('campaigns')
+            .update(baseUpdate)
+            .eq('id', campaignId)
+            .in('status', eligibleStatuses))
+        }
+        if (updErr) console.warn('[Dispatch] Falha ao persistir status FAILED após erro:', updErr)
+      }
+    } catch {
+      // best-effort
+    }
+
     return NextResponse.json(
       {
         error: 'Falha ao iniciar workflow da campanha',
