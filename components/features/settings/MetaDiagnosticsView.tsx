@@ -6,6 +6,8 @@ import {
   RefreshCw,
   ArrowLeft,
   Copy,
+  Clock,
+  LifeBuoy,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -78,6 +80,145 @@ function StatusBadge({ status }: { status: MetaDiagnosticsCheckStatus }) {
   if (status === 'warn') return <span className={`${base} bg-amber-500/10 border-amber-500/20 text-amber-200`}><AlertTriangle size={14} /> Atenção</span>
   if (status === 'fail') return <span className={`${base} bg-red-500/10 border-red-500/20 text-red-200`}><XCircle size={14} /> Falha</span>
   return <span className={`${base} bg-white/5 border-white/10 text-gray-200`}><Info size={14} /> Info</span>
+}
+
+function HealthStatusSeal({ checks }: { checks: MetaDiagnosticsCheck[] }) {
+  const health = checks.find((c) => c.id === 'meta_health_status')
+  const overall = String((health?.details as any)?.overall || '')
+
+  const status: MetaDiagnosticsCheckStatus =
+    overall === 'BLOCKED' ? 'fail' : overall === 'LIMITED' ? 'warn' : overall === 'AVAILABLE' ? 'pass' : 'info'
+
+  const subtitle =
+    overall === 'BLOCKED'
+      ? 'Bloqueio confirmado pela Meta (Health Status). Não há “auto-fix” aqui: precisa resolver no Business Manager/Meta.'
+      : overall === 'LIMITED'
+        ? 'Envio limitado pela Meta. Pode afetar volume/entregabilidade até resolver a causa.'
+        : overall === 'AVAILABLE'
+          ? 'Envio liberado segundo a Meta (prova oficial).'
+          : 'Health Status não disponível (ou não foi possível consultar).'
+
+  return (
+    <div className="glass-panel rounded-2xl p-6">
+      <div className="text-xs text-gray-500">Semáforo</div>
+      <div className="mt-2 flex items-center gap-2">
+        <StatusBadge status={status} />
+        <div className="text-sm text-white font-medium">Health Status: {overall || '—'}</div>
+      </div>
+      <div className="mt-2 text-sm text-gray-300">{subtitle}</div>
+      <div className="mt-2 text-xs text-gray-500">
+        Fonte: Graph API · field <span className="font-mono">health_status</span>
+      </div>
+    </div>
+  )
+}
+
+function TokenExpirySeal({ data, checks }: { data?: MetaDiagnosticsResponse; checks: MetaDiagnosticsCheck[] }) {
+  const enabled = Boolean(data?.debugTokenValidation?.enabled)
+  const token = data?.summary?.token || null
+
+  // fallback (se summary/token não vier por algum motivo): tenta ler do check meta_debug_token
+  const fallbackExpiresAt = (() => {
+    const c = checks.find((x) => x.id === 'meta_debug_token')
+    const v = (c?.details as any)?.expiresAt
+    if (typeof v === 'number') return v
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  })()
+
+  const expiresIso = token?.expiresAtIso || (fallbackExpiresAt ? new Date(fallbackExpiresAt * 1000).toISOString() : null)
+  const status = token?.status || (enabled ? 'unknown' : 'unknown')
+
+  const badgeStatus: MetaDiagnosticsCheckStatus =
+    !enabled ? 'info' : status === 'expired' ? 'fail' : status === 'expiring' ? 'warn' : status === 'ok' ? 'pass' : 'info'
+
+  const subtitle = !enabled
+    ? 'Para ver expiração do token com prova, habilite debug_token (Meta App ID/Secret).'
+    : expiresIso
+      ? `Expira em: ${new Date(expiresIso).toLocaleString('pt-BR')}`
+      : 'Expiração não disponível (tipo de token/Meta não retornou expires_at).'
+
+  const extra = enabled && token?.daysRemaining != null
+    ? `Dias restantes: ${token.daysRemaining}`
+    : null
+
+  return (
+    <div className="glass-panel rounded-2xl p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs text-gray-500">Token</div>
+          <div className="mt-2 flex items-center gap-2">
+            <StatusBadge status={badgeStatus} />
+            <div className="text-sm text-white font-medium">Expiração</div>
+          </div>
+          <div className="mt-2 text-sm text-gray-300">{subtitle}</div>
+          {extra && <div className="mt-2 text-xs text-gray-500">{extra}</div>}
+        </div>
+        <div className="shrink-0 text-gray-300">
+          <Clock size={18} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DebugTokenSeal({ data }: { data?: MetaDiagnosticsResponse }) {
+  const metaApp = data?.metaApp || null
+  const dbg = data?.debugTokenValidation || null
+
+  const enabled = Boolean(dbg?.enabled || metaApp?.enabled)
+  const source = (dbg?.source || metaApp?.source || 'none') as 'db' | 'env' | 'none'
+
+  const status: MetaDiagnosticsCheckStatus = !enabled
+    ? 'info'
+    : (dbg?.attempted && dbg?.ok === true && dbg?.isValid === true)
+      ? 'pass'
+      : (dbg?.attempted && (dbg?.ok === false || dbg?.isValid === false))
+        ? 'warn'
+        : 'info'
+
+  const sourceLabel = source === 'db' ? 'Banco (Supabase)' : source === 'env' ? 'Env vars' : '—'
+  const title = enabled ? 'debug_token habilitado' : 'debug_token desabilitado'
+  const subtitle = !enabled
+    ? 'Configure o Meta App ID/Secret para validar token/escopos com prova (menos achismo, menos suporte).'
+    : dbg?.attempted
+      ? (dbg?.ok === true && dbg?.isValid === true ? 'Última validação: OK' : 'Última validação: falhou')
+      : 'Aguardando primeira validação'
+
+  return (
+    <div className="glass-panel rounded-2xl p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-xs text-gray-500">Selo</div>
+          <div className="mt-2 flex items-center gap-2">
+            <StatusBadge status={status} />
+            <div className="text-sm text-white font-medium truncate">{title}</div>
+          </div>
+          <div className="mt-2 text-sm text-gray-300">{subtitle}</div>
+          <div className="mt-2 text-xs text-gray-500">Fonte: {sourceLabel}</div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-xs text-gray-500">App ID</div>
+          <div className="mt-2 text-sm text-white font-mono">{metaApp?.appId || '—'}</div>
+          <div className="mt-2">
+            <Link
+              href="/settings"
+              className="text-xs text-gray-300 underline hover:text-white transition-colors"
+            >
+              Configurar
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {enabled && dbg?.attempted && dbg?.ok === false && dbg?.error && (
+        <div className="mt-4 text-xs text-gray-400">
+          Detalhe: {typeof dbg.error === 'string' ? dbg.error : 'Falha ao validar via /debug_token'}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function formatJsonMaybe(value: unknown): string {
@@ -172,6 +313,7 @@ export function MetaDiagnosticsView(props: {
   isActing: boolean
 }) {
   const reportText = props.data?.report?.text || ''
+  const supportPacketText = props.data?.report?.supportPacketText || reportText
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 1800 })
   const lock = React.useMemo(() => hasMetaBusinessLockedEvidence(props.checks), [props.checks])
   const apiActionsDisabled = props.isActing || lock.kind === 'current'
@@ -183,6 +325,44 @@ export function MetaDiagnosticsView(props: {
       const code = Number(err?.code ?? err?.error?.code)
       const sub = Number(err?.error_subcode ?? err?.error?.error_subcode)
       if (code === 100 && sub === 33) return true
+    }
+    return false
+  }, [props.checks])
+
+  const hasGraph190 = React.useMemo(() => {
+    const checks = props.checks || []
+    for (const c of checks) {
+      const err = (c as any)?.details?.error
+      const code = Number(err?.code ?? err?.error?.code)
+      if (code === 190) return true
+    }
+    return false
+  }, [props.checks])
+
+  const hasSignal131042 = React.useMemo(() => {
+    // pode aparecer em falhas recentes (internal_recent_failures.top[]) ou em detalhes de health_status
+    for (const c of props.checks || []) {
+      if (c.id === 'internal_recent_failures') {
+        const top = (c.details as any)?.top
+        if (Array.isArray(top) && top.some((x: any) => Number(x?.code) === 131042)) return true
+      }
+      if (c.id === 'meta_health_status') {
+        const errors = Array.isArray((c.details as any)?.errors) ? ((c.details as any).errors as any[]) : []
+        if (errors.some((e) => Number(e?.error_code) === 131042)) return true
+      }
+    }
+    return false
+  }, [props.checks])
+
+  const hasSignal131056 = React.useMemo(() => {
+    for (const c of props.checks || []) {
+      if (c.id === 'internal_recent_failures') {
+        const top = (c.details as any)?.top
+        if (Array.isArray(top) && top.some((x: any) => Number(x?.code) === 131056)) return true
+      }
+      const err = (c as any)?.details?.error
+      const code = Number(err?.code ?? err?.error?.code)
+      if (code === 131056) return true
     }
     return false
   }, [props.checks])
@@ -227,6 +407,39 @@ export function MetaDiagnosticsView(props: {
         </PageActions>
       </PageHeader>
 
+      {/* Selos / atalhos para reduzir suporte */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+        <HealthStatusSeal checks={props.checks} />
+        <TokenExpirySeal data={props.data} checks={props.checks} />
+        <DebugTokenSeal data={props.data} />
+
+        <div className="glass-panel rounded-2xl p-6">
+          <div className="text-xs text-gray-500">Atalho</div>
+          <div className="mt-2 text-sm text-white font-medium">Support Packet</div>
+          <div className="mt-2 text-sm text-gray-300">
+            1 clique pra copiar um pacote pronto (inclui <span className="font-mono">fbtrace_id</span> quando existir).
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => copyToClipboard(supportPacketText)}
+              disabled={!supportPacketText}
+              className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
+              title={supportPacketText ? 'Copiar packet completo' : 'Indisponível'}
+            >
+              <LifeBuoy size={14} /> {isCopied ? 'Copiado!' : 'Copiar packet'}
+            </button>
+            <button
+              onClick={() => copyToClipboard(reportText)}
+              disabled={!reportText}
+              className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
+              title={reportText ? 'Copiar resumo' : 'Indisponível'}
+            >
+              <Copy size={14} /> Resumo
+            </button>
+          </div>
+        </div>
+      </div>
+
       {hasGraph100_33 && (
         <div className="glass-panel rounded-2xl p-6 border border-amber-500/20 bg-amber-500/5 mb-6">
           <div className="flex items-start gap-3">
@@ -246,6 +459,67 @@ export function MetaDiagnosticsView(props: {
               <div className="mt-3 text-xs text-gray-400">
                 Dica: configurando <b>Meta App ID/Secret</b> em Configurações, o diagnóstico consegue validar escopos e origem do token via <span className="font-mono">/debug_token</span>.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasGraph190 && (
+        <div className="glass-panel rounded-2xl p-6 border border-red-500/20 bg-red-500/5 mb-6">
+          <div className="flex items-start gap-3">
+            <XCircle className="mt-0.5 text-red-300" size={18} />
+            <div className="min-w-0">
+              <div className="text-white font-semibold">Como interpretar: erro 190 (token inválido)</div>
+              <div className="text-sm text-gray-200/90 mt-1">
+                Esse erro indica token expirado/invalidado, token copiado errado ou token sem permissão (às vezes aparece como “Session has expired”).
+              </div>
+              <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-200">
+                <li>Gere um novo token (recomendado: <b>System User</b> no Business Manager).</li>
+                <li>Atribua os ativos (WABA + Phone Number) ao System User antes de gerar o token.</li>
+                <li>Garanta os escopos <span className="font-mono">whatsapp_business_messaging</span> e <span className="font-mono">whatsapp_business_management</span>.</li>
+                <li>Atualize o token em <b>Ajustes</b> e rode o diagnóstico novamente.</li>
+              </ul>
+              <div className="mt-3 text-xs text-gray-400">
+                Dica: com <span className="font-mono">debug_token</span> habilitado, você vê expiração/escopos com prova.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasSignal131042 && (
+        <div className="glass-panel rounded-2xl p-6 border border-amber-500/20 bg-amber-500/5 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 text-amber-300" size={18} />
+            <div className="min-w-0">
+              <div className="text-white font-semibold">Como interpretar: erro 131042 (pagamento/conta)</div>
+              <div className="text-sm text-gray-200/90 mt-1">
+                Esse código costuma aparecer quando há problema de pagamento ou restrição de conta no Business Manager. É Meta-side.
+              </div>
+              <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-200">
+                <li>Abra o <b>Business Manager</b> e verifique alertas de cobrança/pagamento.</li>
+                <li>Confirme se o WABA está verificado e sem pendências de revisão.</li>
+                <li>Após corrigir, rode o diagnóstico e faça um envio de teste.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasSignal131056 && (
+        <div className="glass-panel rounded-2xl p-6 border border-amber-500/20 bg-amber-500/5 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 text-amber-300" size={18} />
+            <div className="min-w-0">
+              <div className="text-white font-semibold">Como interpretar: erro 131056 (rate limit por par)</div>
+              <div className="text-sm text-gray-200/90 mt-1">
+                A Meta limita envio para o mesmo usuário (pair rate limit). Isso não é “bloqueio”, é limite temporário.
+              </div>
+              <ul className="mt-3 list-disc pl-5 space-y-1 text-sm text-gray-200">
+                <li>Evite mandar múltiplas mensagens em sequência para o mesmo número em poucos segundos.</li>
+                <li>Se for fluxo/campanha, aplique delay/backoff e re-tente com espaçamento.</li>
+                <li>Rode novamente depois de alguns minutos.</li>
+              </ul>
             </div>
           </div>
         </div>

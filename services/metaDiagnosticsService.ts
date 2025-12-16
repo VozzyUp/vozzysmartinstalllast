@@ -25,6 +25,37 @@ export type MetaDiagnosticsResponse = {
   ok: boolean
   ts: string
   env?: Record<string, unknown>
+  summary?: {
+    health?: {
+      overall?: string
+    }
+    token?: {
+      expiresAt: number | null
+      dataAccessExpiresAt: number | null
+      expiresAtIso: string | null
+      dataAccessExpiresAtIso: string | null
+      daysRemaining: number | null
+      status: 'unknown' | 'ok' | 'expiring' | 'expired'
+    } | null
+    traces?: {
+      fbtraceIds?: string[]
+    }
+  }
+  metaApp?: {
+    enabled: boolean
+    source: 'db' | 'env' | 'none'
+    appId: string | null
+    hasAppSecret: boolean
+  } | null
+  debugTokenValidation?: {
+    enabled: boolean
+    source: 'db' | 'env' | 'none'
+    attempted: boolean
+    checkedAt: string
+    ok: boolean | null
+    isValid: boolean | null
+    error?: unknown
+  } | null
   webhook?: {
     expectedUrl?: string
     verifyTokenPreview?: string
@@ -38,7 +69,7 @@ export type MetaDiagnosticsResponse = {
   checks: MetaDiagnosticsCheck[]
   meta?: Record<string, unknown> | null
   internal?: Record<string, unknown> | null
-  report?: { text?: string } | null
+  report?: { text?: string; supportPacketText?: string } | null
 }
 
 export const metaDiagnosticsService = {

@@ -32,6 +32,15 @@ type DiagnosticCheck = {
 	}>
 }
 
+type TokenExpirySummary = {
+	expiresAt: number | null
+	dataAccessExpiresAt: number | null
+	expiresAtIso: string | null
+	dataAccessExpiresAtIso: string | null
+	daysRemaining: number | null
+	status: 'unknown' | 'ok' | 'expiring' | 'expired'
+}
+
 function normalizeUnknownError(err: unknown): { message: string; details?: Record<string, unknown> } {
 	if (!err) return { message: 'Erro desconhecido' }
 
@@ -100,6 +109,175 @@ function maskId(id: string | null | undefined): string {
 	if (!s) return ''
 	if (s.length <= 8) return `${s.slice(0, 3)}…`
 	return `${s.slice(0, 4)}…${s.slice(-4)}`
+}
+
+function tryParseUnixSeconds(v: unknown): number | null {
+	if (v == null) return null
+	const n = typeof v === 'number' ? v : Number(v)
+	if (!Number.isFinite(n)) return null
+	// Meta usa seconds
+	if (n <= 0) return null
+	return Math.floor(n)
+}
+
+function unixSecondsToIso(sec: number | null): string | null {
+	if (!sec || !Number.isFinite(sec)) return null
+	try {
+		return new Date(sec * 1000).toISOString()
+	} catch {
+		return null
+	}
+}
+
+function computeTokenExpirySummary(debugTokenData: any): TokenExpirySummary {
+	const expiresAt = tryParseUnixSeconds(debugTokenData?.expires_at)
+	const dataAccessExpiresAt = tryParseUnixSeconds(debugTokenData?.data_access_expires_at)
+	const nowSec = Math.floor(Date.now() / 1000)
+	const daysRemaining = expiresAt != null ? Math.floor((expiresAt - nowSec) / 86400) : null
+
+	let status: TokenExpirySummary['status'] = 'unknown'
+	if (expiresAt != null) {
+		if (expiresAt <= nowSec) status = 'expired'
+		else if (expiresAt <= nowSec + 7 * 86400) status = 'expiring'
+		else status = 'ok'
+	}
+
+	return {
+		expiresAt,
+		dataAccessExpiresAt,
+		expiresAtIso: unixSecondsToIso(expiresAt),
+		dataAccessExpiresAtIso: unixSecondsToIso(dataAccessExpiresAt),
+		daysRemaining,
+		status,
+	}
+}
+
+function collectFbtraceIds(checks: DiagnosticCheck[]): string[] {
+	const out = new Set<string>()
+	const seen = new Set<any>()
+
+	const visit = (v: any, depth: number) => {
+		if (!v || depth > 6) return
+		if (typeof v === 'string') {
+			// fbtrace_id costuma parecer com "A1b2C..." (não garantimos formato)
+			if (v.length >= 6 && v.length <= 128 && /[A-Za-z0-9]/.test(v)) {
+				// não dá pra saber se é trace, então só adicionamos quando a chave indica.
+			}
+			return
+		}
+		if (typeof v !== 'object') return
+		if (seen.has(v)) return
+		seen.add(v)
+
+		if (typeof v.fbtrace_id === 'string' && v.fbtrace_id.trim()) out.add(v.fbtrace_id.trim())
+		if (typeof v.fbtraceId === 'string' && v.fbtraceId.trim()) out.add(v.fbtraceId.trim())
+
+		for (const k of Object.keys(v)) {
+			const child = (v as any)[k]
+			if (k === 'fbtrace_id' || k === 'fbtraceId') {
+				if (typeof child === 'string' && child.trim()) out.add(child.trim())
+				continue
+			}
+			visit(child, depth + 1)
+		}
+	}
+
+	for (const c of checks) {
+		visit(c.details, 0)
+	}
+
+	return Array.from(out)
+}
+
+function extractGraphErrorFromUnknown(value: any) {
+	if (!value) return null
+	const err = value?.error || value
+	const code = err?.code ?? null
+	const sub = err?.error_subcode ?? null
+	const message = err?.message ?? null
+	const fbtrace_id = err?.fbtrace_id ?? null
+	const type = err?.type ?? null
+	const error_user_title = err?.error_user_title ?? null
+	const error_user_msg = err?.error_user_msg ?? null
+
+	const hasAny =
+		code != null || sub != null || message != null || fbtrace_id != null || type != null || error_user_title != null
+	if (!hasAny) return null
+	return {
+		code,
+		error_subcode: sub,
+		message,
+		type,
+		fbtrace_id,
+		error_user_title,
+		error_user_msg,
+	}
+}
+
+function buildSupportPacketText(params: {
+	checks: DiagnosticCheck[]
+	meta: { vercelEnv: string | null; webhookUrl: string; source: string }
+	whatsapp: { wabaId: string; phoneNumberId: string; accessTokenPreview: string }
+	debugToken: {
+		enabled: boolean
+		source: string
+		attempted: boolean
+		ok: boolean | null
+		isValid: boolean | null
+		expiry: TokenExpirySummary | null
+	}
+}) {
+	const lines: string[] = []
+	lines.push(`SmartZap · Support Packet · ${new Date().toLocaleString('pt-BR')}`)
+	lines.push(`Ambiente: ${params.meta.vercelEnv || 'desconhecido'} · Credenciais: ${params.meta.source}`)
+	lines.push(`Webhook esperado: ${params.meta.webhookUrl}`)
+	lines.push(`WABA: ${params.whatsapp.wabaId} · Phone: ${params.whatsapp.phoneNumberId} · Token: ${params.whatsapp.accessTokenPreview}`)
+	lines.push('')
+
+	const health = params.checks.find((c) => c.id === 'meta_health_status')
+	const healthOverall = String((health?.details as any)?.overall || '')
+	if (healthOverall) lines.push(`Health Status (overall): ${healthOverall}`)
+
+	if (params.debugToken.enabled) {
+		lines.push(
+			`debug_token: ${params.debugToken.attempted ? 'tentado' : 'não tentado'} · ok=${String(params.debugToken.ok)} · is_valid=${String(params.debugToken.isValid)}`
+		)
+		if (params.debugToken.expiry?.expiresAtIso) {
+			lines.push(
+				`Token expira em: ${new Date(params.debugToken.expiry.expiresAtIso).toLocaleString('pt-BR')} · status=${params.debugToken.expiry.status}`
+			)
+		}
+	}
+
+	const traces = collectFbtraceIds(params.checks)
+	if (traces.length) {
+		lines.push('')
+		lines.push(`fbtrace_id (Meta): ${traces.join(', ')}`)
+	}
+
+	const problems = params.checks.filter((c) => c.status === 'fail' || c.status === 'warn')
+	if (problems.length) {
+		lines.push('')
+		lines.push('Resumo de problemas:')
+		for (const c of problems) {
+			lines.push(`- [${c.status.toUpperCase()}] ${c.title}: ${c.message}`)
+			const ge = extractGraphErrorFromUnknown((c.details as any)?.error || (c.details as any)?.details || null)
+			if (ge?.code || ge?.message || ge?.fbtrace_id) {
+				lines.push(
+					`  Graph error: code=${String(ge.code ?? '—')} sub=${String(ge.error_subcode ?? '—')} msg=${String(ge.message ?? '—')} fbtrace_id=${String(ge.fbtrace_id ?? '—')}`
+				)
+			}
+		}
+	}
+
+	lines.push('')
+	lines.push('Checklist rápido (pra triagem):')
+	lines.push('- Health Status BLOCKED? (se sim, é Meta-side: pagamento/qualidade/revisão)')
+	lines.push('- debug_token válido e com escopos whatsapp_business_*?')
+	lines.push('- WABA/PHONE_NUMBER acessíveis (sem 100/33)?')
+	lines.push('- Webhook subscribed_apps com "messages" ativo (pra delivered/read)?')
+
+	return lines.join('\n')
 }
 
 function computeWebhookUrl(): { webhookUrl: string; vercelEnv: string | null } {
@@ -389,7 +567,8 @@ async function getInternalLastStatusUpdateAt(): Promise<
 
 function buildReportText(
 	checks: DiagnosticCheck[],
-	meta: { vercelEnv: string | null; webhookUrl: string; source: string }
+	meta: { vercelEnv: string | null; webhookUrl: string; source: string },
+	extra?: { tokenExpiry?: TokenExpirySummary | null; fbtraceIds?: string[] }
 ) {
 	function hasCodeDeep(value: unknown, code: number): boolean {
 		if (!value) return false
@@ -430,6 +609,14 @@ function buildReportText(
 	lines.push(`SmartZap · Diagnóstico Meta/WhatsApp · ${new Date().toLocaleString('pt-BR')}`)
 	lines.push(`Ambiente: ${meta.vercelEnv || 'desconhecido'} · Credenciais: ${meta.source}`)
 	lines.push(`Webhook esperado: ${meta.webhookUrl}`)
+	if (extra?.tokenExpiry?.expiresAtIso) {
+		lines.push(
+			`Token expira em: ${new Date(extra.tokenExpiry.expiresAtIso).toLocaleString('pt-BR')} · status=${extra.tokenExpiry.status}`
+		)
+	}
+	if (extra?.fbtraceIds?.length) {
+		lines.push(`fbtrace_id: ${extra.fbtraceIds.join(', ')}`)
+	}
 	const health = checks.find((c) => c.id === 'meta_health_status')
 	const healthOverall = String((health?.details as any)?.overall || '')
 	const healthIsBlocked = health?.status === 'fail' || healthOverall === 'BLOCKED'
@@ -612,17 +799,31 @@ export async function GET() {
 	}
 
 	let debugTokenData: any = null
+	let debugTokenAttempted = false
+	let debugTokenOk: boolean | null = null
+	let debugTokenIsValid: boolean | null = null
+	let debugTokenError: any = null
+	let tokenExpirySummary: TokenExpirySummary | null = null
 
 	// 2a) debug_token (opcional, depende de APP_ID/APP_SECRET)
 	const appCreds = await getMetaAppCredentials()
+	const metaAppSource = (appCreds?.source || (process.env.META_APP_ID || process.env.META_APP_SECRET ? 'env' : 'none')) as
+		| 'db'
+		| 'env'
+		| 'none'
 	const appId = (appCreds?.appId || '').trim()
 	const appSecret = (appCreds?.appSecret || '').trim()
 	if (appId && appSecret) {
 		try {
+			debugTokenAttempted = true
 			const appAccessToken = `${appId}|${appSecret}`
 			const dbg = await graphGet('/debug_token', appAccessToken, { input_token: credentials.accessToken })
 			debugTokenData = dbg.ok ? (dbg.json?.data || null) : null
+			tokenExpirySummary = dbg.ok ? computeTokenExpirySummary(dbg.json?.data || null) : null
 			meta.debugToken = dbg.ok ? dbg.json?.data || dbg.json : dbg.json
+			debugTokenOk = dbg.ok
+			debugTokenIsValid = dbg.ok ? (dbg.json?.data?.is_valid ?? null) : null
+			debugTokenError = dbg.ok ? null : (dbg.json?.error || dbg.json)
 
 			if (dbg.ok && dbg.json?.data?.is_valid === false) {
 				checks.push({
@@ -658,6 +859,10 @@ export async function GET() {
 				})
 			}
 		} catch (e) {
+			debugTokenAttempted = true
+			debugTokenOk = false
+			debugTokenIsValid = null
+			debugTokenError = e instanceof Error ? e.message : String(e)
 			checks.push({
 				id: 'meta_debug_token',
 				title: 'Token (debug_token)',
@@ -1201,7 +1406,25 @@ export async function GET() {
 		},
 	})
 
-	const reportText = buildReportText(checks, { vercelEnv, webhookUrl, source })
+	const fbtraceIds = collectFbtraceIds(checks)
+	const reportText = buildReportText(checks, { vercelEnv, webhookUrl, source }, { tokenExpiry: tokenExpirySummary, fbtraceIds })
+	const supportPacketText = buildSupportPacketText({
+		checks,
+		meta: { vercelEnv, webhookUrl, source },
+		whatsapp: {
+			wabaId: maskId(credentials.businessAccountId),
+			phoneNumberId: maskId(credentials.phoneNumberId),
+			accessTokenPreview: maskTokenPreview(credentials.accessToken),
+		},
+		debugToken: {
+			enabled: Boolean(appId && appSecret),
+			source: metaAppSource,
+			attempted: debugTokenAttempted,
+			ok: debugTokenOk,
+			isValid: debugTokenIsValid,
+			expiry: tokenExpirySummary,
+		},
+	})
 
 	return noStoreJson({
 		ok: true,
@@ -1222,6 +1445,30 @@ export async function GET() {
 				hasMetaAppSecret: Boolean(appSecret),
 			},
 		},
+		metaApp: {
+			enabled: Boolean(appId && appSecret),
+			source: metaAppSource,
+			appId: appId ? maskId(appId) : null,
+			hasAppSecret: Boolean(appSecret),
+		},
+		debugTokenValidation: {
+			enabled: Boolean(appId && appSecret),
+			source: metaAppSource,
+			attempted: debugTokenAttempted,
+			checkedAt: ts,
+			ok: debugTokenOk,
+			isValid: debugTokenIsValid,
+			error: debugTokenError,
+		},
+		summary: {
+			health: {
+				overall: String((checks.find((c) => c.id === 'meta_health_status')?.details as any)?.overall || ''),
+			},
+			token: tokenExpirySummary,
+			traces: {
+				fbtraceIds,
+			},
+		},
 		webhook: {
 			expectedUrl: webhookUrl,
 			verifyTokenPreview: maskTokenPreview(webhookToken),
@@ -1240,6 +1487,7 @@ export async function GET() {
 		},
 		report: {
 			text: reportText,
+			supportPacketText,
 		},
 	})
 }
