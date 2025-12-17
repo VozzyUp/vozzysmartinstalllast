@@ -349,6 +349,20 @@ export const campaignService = {
     return updatedCampaign;
   },
 
+  // Cancel a sending campaign (terminal)
+  cancel: async (id: string): Promise<Campaign | undefined> => {
+    const response = await fetch(`/api/campaign/${id}/cancel`, { method: 'POST' })
+    const payload = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      const base = payload?.error || 'Falha ao cancelar envio'
+      const details = payload?.details ? String(payload.details) : ''
+      throw new Error(details ? `${base}: ${details}` : base)
+    }
+
+    return payload?.campaign as Campaign | undefined
+  },
+
   // Start a scheduled or draft campaign immediately
   start: async (id: string): Promise<Campaign | undefined> => {
     console.log('🚀 Starting campaign:', { id });
@@ -374,11 +388,17 @@ export const campaignService = {
       return undefined
     }
 
-    // Clear scheduledAt once dispatch is queued (workflow will set status/startedAt).
+    // Atualiza estado imediatamente no DB para a UI não ficar “Iniciar Agora” enquanto já está enviando.
+    // O workflow também setará status/startedAt, mas isso pode demorar alguns segundos.
+    const nowIso = new Date().toISOString()
+
+    // Clear scheduledAt once dispatch is queued.
     const updateResponse = await fetch(`/api/campaigns/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        status: CampaignStatus.SENDING,
+        startedAt: (campaignData as any).startedAt || nowIso,
         scheduledAt: null,
         qstashScheduleMessageId: null,
         qstashScheduleEnqueuedAt: null,

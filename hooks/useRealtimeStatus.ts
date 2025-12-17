@@ -61,6 +61,9 @@ export const useRealtimeStatus = (
     
     // NEVER poll paused campaigns
     if (campaign.status === CampaignStatus.PAUSED) return false;
+
+    // NEVER poll cancelled campaigns
+    if (campaign.status === CampaignStatus.CANCELLED) return false;
     
     // NEVER poll draft campaigns
     if (campaign.status === CampaignStatus.DRAFT) return false;

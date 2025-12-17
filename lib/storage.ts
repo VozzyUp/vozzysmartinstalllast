@@ -15,6 +15,7 @@ const STATUS_MIGRATION: Record<string, CampaignStatus> = {
   'Completed': CampaignStatus.COMPLETED,
   'Paused': CampaignStatus.PAUSED,
   'Failed': CampaignStatus.FAILED,
+  'Cancelled': CampaignStatus.CANCELLED,
 };
 
 // Normaliza status de campanha (migra valores antigos em inglês)

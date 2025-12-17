@@ -10,7 +10,8 @@ export enum CampaignStatus {
   SENDING = 'Enviando',
   COMPLETED = 'Concluído',
   PAUSED = 'Pausado',
-  FAILED = 'Falhou'
+  FAILED = 'Falhou',
+  CANCELLED = 'Cancelado'
 }
 
 export enum ContactStatus {
@@ -91,6 +92,7 @@ export interface Campaign {
   firstDispatchAt?: string | null; // When the first contact started dispatching (claim/sending) (dispatch-only)
   lastSentAt?: string | null;   // When the last contact was marked as "sent" (dispatch-only)
   completedAt?: string | null;  // When campaign finished
+  cancelledAt?: string | null;  // When campaign was cancelled by user
   pausedAt?: string | null;     // When campaign was paused
   // Contacts (for resume functionality and optimistic UI)
   selectedContactIds?: string[];
@@ -307,6 +309,7 @@ export interface RealtimeState {
 export type CampaignProgressBroadcastPhase =
   | 'batch_start'
   | 'batch_end'
+  | 'cancelled'
   | 'complete'
 
 export interface CampaignProgressBroadcastDelta {

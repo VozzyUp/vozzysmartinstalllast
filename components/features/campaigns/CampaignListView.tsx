@@ -33,6 +33,7 @@ const StatusBadge = ({ status }: { status: CampaignStatus }) => {
     [CampaignStatus.DRAFT]: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
     [CampaignStatus.PAUSED]: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     [CampaignStatus.SCHEDULED]: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    [CampaignStatus.CANCELLED]: 'bg-zinc-800 text-gray-300 border-zinc-700/70',
   };
 
   const labels = {
@@ -42,6 +43,7 @@ const StatusBadge = ({ status }: { status: CampaignStatus }) => {
     [CampaignStatus.DRAFT]: 'Rascunho',
     [CampaignStatus.PAUSED]: 'Pausado',
     [CampaignStatus.SCHEDULED]: 'Agendado',
+    [CampaignStatus.CANCELLED]: 'Cancelado',
   };
 
   return (
@@ -142,6 +144,7 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
             <option value={CampaignStatus.PAUSED}>Pausado</option>
             <option value={CampaignStatus.SCHEDULED}>Agendado</option>
             <option value={CampaignStatus.FAILED}>Falhou</option>
+            <option value={CampaignStatus.CANCELLED}>Cancelado</option>
           </select>
         </div>
       </div>

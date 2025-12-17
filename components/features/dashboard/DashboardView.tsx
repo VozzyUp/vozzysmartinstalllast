@@ -52,22 +52,24 @@ const StatCard = ({ title, value, icon: Icon, trend, trendUp, color }: StatCardP
 };
 
 const StatusBadge = ({ status }: { status: CampaignStatus }) => {
-  const styles = {
+  const styles: Record<CampaignStatus, string> = {
     [CampaignStatus.COMPLETED]: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
     [CampaignStatus.SENDING]: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     [CampaignStatus.FAILED]: 'bg-red-500/10 text-red-400 border-red-500/20',
     [CampaignStatus.DRAFT]: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
     [CampaignStatus.PAUSED]: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     [CampaignStatus.SCHEDULED]: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    [CampaignStatus.CANCELLED]: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
   };
 
-  const labels = {
+  const labels: Record<CampaignStatus, string> = {
     [CampaignStatus.COMPLETED]: 'Concluído',
     [CampaignStatus.SENDING]: 'Enviando',
     [CampaignStatus.FAILED]: 'Falhou',
     [CampaignStatus.DRAFT]: 'Rascunho',
     [CampaignStatus.PAUSED]: 'Pausado',
     [CampaignStatus.SCHEDULED]: 'Agendado',
+    [CampaignStatus.CANCELLED]: 'Cancelada',
   };
 
   return (

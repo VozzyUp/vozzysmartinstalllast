@@ -72,6 +72,7 @@ export const campaignDb = {
             firstDispatchAt: (row as any).first_dispatch_at ?? null,
             lastSentAt: (row as any).last_sent_at ?? null,
             completedAt: row.completed_at,
+            cancelledAt: (row as any).cancelled_at ?? null,
         }))
     },
 
@@ -108,6 +109,7 @@ export const campaignDb = {
             firstDispatchAt: (data as any).first_dispatch_at ?? null,
             lastSentAt: (data as any).last_sent_at ?? null,
             completedAt: data.completed_at,
+            cancelledAt: (data as any).cancelled_at ?? null,
         }
     },
 
@@ -144,6 +146,7 @@ export const campaignDb = {
                 created_at: now,
                 scheduled_date: campaign.scheduledAt,
                 started_at: null,
+                cancelled_at: null,
             })
             .select()
             .single()
@@ -165,6 +168,7 @@ export const campaignDb = {
             createdAt: now,
             scheduledAt: campaign.scheduledAt,
             startedAt: undefined,
+            cancelledAt: undefined,
         }
     },
 
@@ -258,6 +262,7 @@ export const campaignDb = {
         if (updates.skipped !== undefined) updateData.skipped = updates.skipped
         if (updates.failed !== undefined) updateData.failed = updates.failed
         if (updates.completedAt !== undefined) updateData.completed_at = updates.completedAt
+        if (updates.cancelledAt !== undefined) updateData.cancelled_at = updates.cancelledAt
         if (updates.startedAt !== undefined) updateData.started_at = updates.startedAt
         if (updates.firstDispatchAt !== undefined) updateData.first_dispatch_at = updates.firstDispatchAt
         if (updates.lastSentAt !== undefined) updateData.last_sent_at = updates.lastSentAt

@@ -187,16 +187,19 @@ interface CampaignDetailsViewProps {
   onResume?: () => void;
   onStart?: () => void;
   onCancelSchedule?: () => void;
+  onCancelSend?: () => void;
   onResendSkipped?: () => void;
   isPausing?: boolean;
   isResuming?: boolean;
   isStarting?: boolean;
   isCancelingSchedule?: boolean;
+  isCancelingSend?: boolean;
   isResendingSkipped?: boolean;
   canPause?: boolean;
   canResume?: boolean;
   canStart?: boolean;
   canCancelSchedule?: boolean;
+  canCancelSend?: boolean;
   // Realtime status
   isRealtimeConnected?: boolean;
   shouldShowRefreshButton?: boolean;
@@ -221,16 +224,19 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
   onResume,
   onStart,
   onCancelSchedule,
+  onCancelSend,
   onResendSkipped,
   isPausing,
   isResuming,
   isStarting,
   isCancelingSchedule,
+  isCancelingSend,
   isResendingSkipped,
   canPause,
   canResume,
   canStart,
   canCancelSchedule,
+  canCancelSend,
   isRealtimeConnected,
   shouldShowRefreshButton,
   isRefreshing,
@@ -390,6 +396,8 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
       : campaign.status === CampaignStatus.SENDING
         ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+        : campaign.status === CampaignStatus.CANCELLED
+          ? 'bg-zinc-800 border-zinc-700/70 text-gray-300'
         : campaign.status === CampaignStatus.PAUSED
           ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
           : campaign.status === CampaignStatus.SCHEDULED
@@ -470,6 +478,19 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
             >
               {isCancelingSchedule ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
               {isCancelingSchedule ? 'Cancelando...' : 'Cancelar agendamento'}
+            </button>
+          )}
+
+          {/* Cancel sending (sending/paused campaigns) */}
+          {canCancelSend && (
+            <button
+              onClick={onCancelSend}
+              disabled={isCancelingSend}
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 border border-red-500/20 rounded-lg text-white transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+              title="Interrompe o envio e marca a campanha como Cancelada"
+            >
+              {isCancelingSend ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
+              {isCancelingSend ? 'Cancelando...' : 'Cancelar envio'}
             </button>
           )}
 

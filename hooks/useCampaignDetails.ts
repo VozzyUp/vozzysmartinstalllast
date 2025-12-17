@@ -80,6 +80,7 @@ export const useCampaignDetailsController = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isResendingSkipped, setIsResendingSkipped] = useState(false);
   const [isCancelingSchedule, setIsCancelingSchedule] = useState(false);
+  const [isCancelingSend, setIsCancelingSend] = useState(false);
 
   type CampaignMessagesResponse = Awaited<ReturnType<(typeof campaignService)['getMessages']>>
 
@@ -238,6 +239,19 @@ export const useCampaignDetailsController = () => {
     }
   })
 
+  const cancelSendMutation = useMutation({
+    mutationFn: () => campaignService.cancel(id!),
+    onSuccess: () => {
+      toast.success('Envio cancelado');
+      queryClient.invalidateQueries({ queryKey: ['campaign', id] });
+      queryClient.invalidateQueries({ queryKey: ['campaignMessages', id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'Falha ao cancelar envio');
+    }
+  })
+
   const resendSkippedMutation = useMutation({
     mutationFn: () => campaignService.resendSkipped(id!),
     onSuccess: async (result) => {
@@ -311,11 +325,23 @@ export const useCampaignDetailsController = () => {
     }
   }
 
+  const handleCancelSend = async () => {
+    if (!id) return
+    if (![CampaignStatus.SENDING, CampaignStatus.PAUSED].includes(activeCampaign?.status as any)) return
+    setIsCancelingSend(true)
+    try {
+      await cancelSendMutation.mutateAsync()
+    } finally {
+      setIsCancelingSend(false)
+    }
+  }
+
   // Can perform actions?
   const canPause = activeCampaign?.status === CampaignStatus.SENDING;
   const canResume = activeCampaign?.status === CampaignStatus.PAUSED;
   const canStart = activeCampaign?.status === CampaignStatus.SCHEDULED || activeCampaign?.status === CampaignStatus.DRAFT;
   const canCancelSchedule = activeCampaign?.status === CampaignStatus.SCHEDULED;
+  const canCancelSend = activeCampaign?.status === CampaignStatus.SENDING || activeCampaign?.status === CampaignStatus.PAUSED;
 
   return {
     campaign: activeCampaign,
@@ -338,11 +364,14 @@ export const useCampaignDetailsController = () => {
     onResume: handleResume,
     onStart: handleStart,
     onCancelSchedule: handleCancelSchedule,
+    onCancelSend: handleCancelSend,
     isCancelingSchedule,
+    isCancelingSend,
     isPausing: pauseMutation.isPending,
     isResuming: resumeMutation.isPending,
     isStarting: startMutation.isPending,
     canCancelSchedule,
+    canCancelSend,
     canPause,
     canResume,
     canStart,

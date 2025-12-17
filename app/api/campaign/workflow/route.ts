@@ -129,6 +129,7 @@ async function updateContactStatus(
   identifiers: { contactId: string; phone: string },
   status: 'sent' | 'failed' | 'skipped',
   opts?: {
+    sendingAt?: string
     messageId?: string
     error?: string
     errorCode?: number
@@ -141,11 +142,16 @@ async function updateContactStatus(
     skipReason?: string
     traceId?: string
   }
-) {
+): Promise<{ ok: boolean; reason?: 'no_rows' | 'error' }> {
   try {
     const now = new Date().toISOString()
     const update: any = {
       status,
+    }
+
+    // Útil para manter o valor de início de processamento sem depender do bulk.
+    if (opts?.sendingAt) {
+      update.sending_at = opts.sendingAt
     }
 
     // Correlation id for tracing across dispatch/workflow/webhook
@@ -157,13 +163,27 @@ async function updateContactStatus(
       update.sent_at = now
       update.message_id = opts?.messageId || null
       update.error = null
+
+      // Idempotência: se estamos re-enviando, limpamos rastros antigos.
+      update.failed_at = null
+      update.skipped_at = null
+      update.failure_code = null
+      update.failure_reason = null
+      update.failure_title = null
+      update.failure_details = null
+      update.failure_fbtrace_id = null
+      update.failure_subcode = null
+      update.failure_href = null
+
       update.skip_code = null
       update.skip_reason = null
-      update.skipped_at = null
     }
 
     if (status === 'failed') {
       update.failed_at = now
+      update.sent_at = null
+      update.skipped_at = null
+      update.message_id = null
       update.error = opts?.error || null
 
       // Colunas próprias (quando temos contexto estruturado)
@@ -178,6 +198,9 @@ async function updateContactStatus(
       if (typeof opts?.error === 'string' && opts.error.trim()) {
         update.failure_reason = opts.error
       }
+
+      update.skip_code = null
+      update.skip_reason = null
     }
 
     if (status === 'skipped') {
@@ -186,17 +209,41 @@ async function updateContactStatus(
       update.skip_reason = opts?.skipReason || opts?.error || null
       update.error = null
       update.message_id = null
+
+      update.sent_at = null
+      update.failed_at = null
+      update.failure_code = null
+      update.failure_reason = null
+      update.failure_title = null
+      update.failure_details = null
+      update.failure_fbtrace_id = null
+      update.failure_subcode = null
+      update.failure_href = null
     }
 
-    const query = supabase
+    // Importante: não podemos regredir status (ex.: webhook já marcou delivered/read)
+    // enquanto o workflow ainda está persistindo `sent`.
+    let query = supabase
       .from('campaign_contacts')
       .update(update)
       .eq('campaign_id', campaignId)
       .eq('contact_id', identifiers.contactId)
 
-    await query
+    if (status === 'sent') {
+      query = query.in('status', ['pending', 'sending', 'sent'] as any)
+    }
+
+    const { data, error } = await query.select('id')
+    if (error) {
+      console.error(`Failed to update contact status: ${identifiers.phone}`, error)
+      return { ok: false, reason: 'error' }
+    }
+
+    const updated = Array.isArray(data) && data.length > 0
+    return updated ? { ok: true } : { ok: false, reason: 'no_rows' }
   } catch (e) {
     console.error(`Failed to update contact status: ${identifiers.phone}`, e)
+    return { ok: false, reason: 'error' }
   }
 }
 
@@ -233,10 +280,34 @@ export const { POST } = serve<CampaignWorkflowInput>(
       )
     }
 
+    // Se a campanha foi cancelada antes do workflow iniciar, saímos sem tocar em status.
+    // (Importante para evitar que o init-campaign volte para SENDING.)
+    const existingAtStart = await campaignDb.getById(campaignId)
+    if (existingAtStart?.status === CampaignStatus.CANCELLED) {
+      await emitWorkflowTrace({
+        traceId,
+        campaignId,
+        step: 'workflow',
+        phase: 'cancelled_before_start',
+        ok: true,
+      })
+      console.log(`🛑 Campaign ${campaignId} already CANCELLED before workflow start. Exiting.`)
+      return
+    }
+
+    let shouldStopWorkflow: 'cancelled' | null = null
+
     // Step 1: Mark campaign as SENDING in Supabase
     await context.run('init-campaign', async () => {
       const nowIso = new Date().toISOString()
       const existing = await campaignDb.getById(campaignId)
+
+      // Defesa extra: não sobrescrever cancelamento.
+      if (existing?.status === CampaignStatus.CANCELLED) {
+        shouldStopWorkflow = 'cancelled'
+        return
+      }
+
       const startedAt = (existing as any)?.startedAt || nowIso
 
       await campaignDb.updateStatus(campaignId, {
@@ -248,6 +319,11 @@ export const { POST } = serve<CampaignWorkflowInput>(
       console.log(`📊 Campaign ${campaignId} started with ${contacts.length} contacts (traceId=${traceId})`)
       console.log(`📝 Template variables: ${JSON.stringify(templateVariables || [])}`)
     })
+
+    if (shouldStopWorkflow === 'cancelled') {
+      console.log(`🛑 Workflow stopped for campaign ${campaignId} (CANCELLED during init).`)
+      return
+    }
 
     // Step 2: Process contacts in smaller batches
     // Each batch is a separate step = separate HTTP request = bypasses 10s limit
@@ -338,6 +414,33 @@ export const { POST } = serve<CampaignWorkflowInput>(
             .select('status')
             .eq('id', campaignId)
             .single()
+
+          if (campaignStatusAtBatchStart?.status === CampaignStatus.CANCELLED) {
+            console.log(`🛑 Campaign ${campaignId} is cancelled, stopping workflow at batch ${batchIndex}`)
+            shouldStopWorkflow = 'cancelled'
+
+            // Broadcast best-effort
+            try {
+              await broadcastCampaignPhase(campaignId, {
+                traceId,
+                batchIndex,
+                phase: 'cancelled',
+              })
+            } catch {
+              // best-effort
+            }
+
+            await emitWorkflowTrace({
+              traceId,
+              campaignId,
+              step,
+              batchIndex,
+              phase: 'cancelled',
+              ok: true,
+            })
+
+            return
+          }
 
           if (campaignStatusAtBatchStart?.status === CampaignStatus.PAUSED) {
             console.log(`⏸️ Campaign ${campaignId} is paused, skipping batch ${batchIndex}`)
@@ -662,12 +765,17 @@ export const { POST } = serve<CampaignWorkflowInput>(
             if (response.ok && data.messages?.[0]?.id) {
               const messageId = data.messages[0].id
 
-              // Status será persistido em bulk ao final do batch.
-              pushWriteOp({
-                contact,
-                status: 'sent',
-                opts: { sendingAt: sendingAtIso, messageId, traceId },
-              })
+              // CRÍTICO: persistir imediatamente o message_id.
+              // Caso contrário, o webhook de delivered/read pode chegar ANTES do bulk upsert,
+              // falhar no lookup por message_id e a entrega nunca será contabilizada.
+              const db0 = Date.now()
+              await updateContactStatus(
+                campaignId,
+                { contactId: contact.contactId, phone: contact.phone },
+                'sent',
+                { sendingAt: sendingAtIso, messageId, traceId }
+              )
+              dbTimeMs += Date.now() - db0
 
               // Métrica operacional: quando foi o último "sent" (envio/dispatch), sem depender de delivery.
               lastSentAtInBatch = new Date().toISOString()
@@ -1190,10 +1298,24 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
         console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: ${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped`)
       })
+
+      if (shouldStopWorkflow === 'cancelled') break
     }
 
     // Step 3: Mark campaign as completed
+    if (shouldStopWorkflow === 'cancelled') {
+      console.log(`🛑 Workflow stopped early for campaign ${campaignId} (CANCELLED). Skipping completion step.`)
+      return
+    }
+
     await context.run('complete-campaign', async () => {
+      // Não sobrescrever cancelamento caso tenha ocorrido entre batches e este step.
+      const current = await campaignDb.getById(campaignId)
+      if (current?.status === CampaignStatus.CANCELLED) {
+        console.log(`🛑 Campaign ${campaignId} is CANCELLED. Skipping completion update.`)
+        return
+      }
+
       const campaign = await campaignDb.getById(campaignId)
 
       let finalStatus = CampaignStatus.COMPLETED
