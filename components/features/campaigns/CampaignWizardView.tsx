@@ -523,6 +523,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   const router = useRouter();
 
   type QuickEditTarget =
+    | { type: 'name' }
     | { type: 'email' }
     | { type: 'custom_field'; key: string };
 
@@ -915,7 +916,16 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
       }
 
       const dedupedTargets = Array.from(
-        new Map(targets.map((t) => [t.type === 'email' ? 'email' : `custom_field:${(t as any).key}`, t])).values()
+        new Map(
+          targets.map((t) => [
+            t.type === 'email'
+              ? 'email'
+              : t.type === 'name'
+                ? 'name'
+                : `custom_field:${(t as any).key}`,
+            t,
+          ])
+        ).values()
       );
 
       let focus: QuickEditFocus = null;
@@ -1061,10 +1071,10 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon"
                   onClick={handleGoBack}
                   aria-label="Voltar"
-                  className="border border-white/10 bg-zinc-900/40 text-gray-400 hover:text-white hover:bg-white/5"
+                  className="h-8 w-8 border border-white/10 bg-zinc-900/40 text-gray-400 hover:text-white hover:bg-white/5"
                 >
                   <ChevronLeft size={16} />
                 </Button>

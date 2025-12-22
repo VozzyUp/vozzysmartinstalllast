@@ -249,6 +249,37 @@ export function resolveVarValue(raw: string | undefined, contact: ContactLike): 
   return val
 }
 
+// Versão “estrita” usada APENAS no pré-check.
+// Objetivo: detectar valores realmente ausentes, sem fallback cosmético (ex.: nome → "Cliente").
+function resolveVarValueForPrecheck(raw: string | undefined, contact: ContactLike): string {
+  const val = (raw ?? '').trim()
+
+  // Tokens documentados internamente do SmartZap (não Meta): nomes em pt-BR + compat
+  if (val === '{{nome}}' || val === '{{name}}' || val === '{{contact.name}}') {
+    return String(contact.name || '').trim()
+  }
+  if (val === '{{telefone}}' || val === '{{phone}}' || val === '{{contact.phone}}') {
+    return String(contact.phone || '').trim()
+  }
+  if (val === '{{email}}' || val === '{{contact.email}}') {
+    const email = (contact.email ?? (contact.custom_fields as any)?.email ?? '')
+    return String(email || '').trim()
+  }
+
+  // Custom field token: {{campo_personalizado}}
+  const customFieldMatch = val.match(/^\{\{([a-zA-Z0-9_]+)\}\}$/)
+  if (customFieldMatch) {
+    const fieldName = customFieldMatch[1]
+    const customFields = (contact.custom_fields || {}) as Record<string, unknown>
+    if (customFields[fieldName] !== undefined && customFields[fieldName] !== null) {
+      return String(customFields[fieldName]).trim()
+    }
+    return ''
+  }
+
+  return val
+}
+
 function normalizePositionalArrayOrMap(input: unknown): string[] {
   if (Array.isArray(input)) return input.map(v => String(v ?? ''))
   if (input && typeof input === 'object') {
@@ -330,7 +361,7 @@ export function precheckContactForTemplate(
       const key = spec.header.requiredKeys[0] // only one
       const idx = Number(key)
       const raw = String(headerArr[idx - 1] ?? '')
-      const resolved = resolveVarValue(raw, contact)
+      const resolved = resolveVarValueForPrecheck(raw, contact)
       values.header = [{ key, text: resolved }]
       requiredParams.push({ where: 'header', key, raw, resolved })
     }
@@ -338,7 +369,7 @@ export function precheckContactForTemplate(
     values.body = spec.body.requiredKeys.map(k => {
       const idx = Number(k)
       const raw = String(bodyArr[idx - 1] ?? '')
-      const resolved = resolveVarValue(raw, contact)
+      const resolved = resolveVarValueForPrecheck(raw, contact)
       requiredParams.push({ where: 'body', key: k, raw, resolved })
       return { key: k, text: resolved }
     })
@@ -354,7 +385,7 @@ export function precheckContactForTemplate(
         const legacy = buttons[`button_${b.index}_${idx - 1}`]
         const modern = buttons[`button_${b.index}_${idx}`]
         const raw = String((legacy ?? modern) ?? '')
-        const resolved = resolveVarValue(raw, contact)
+        const resolved = resolveVarValueForPrecheck(raw, contact)
         params.push({ key: k, text: resolved })
         requiredParams.push({ where: 'button', key: k, buttonIndex: b.index, raw, resolved })
       }
@@ -369,14 +400,14 @@ export function precheckContactForTemplate(
     if (spec.header?.requiredKeys.length) {
       const key = spec.header.requiredKeys[0]
       const raw = String(headerMap[key] ?? '')
-      const resolved = resolveVarValue(raw, contact)
+      const resolved = resolveVarValueForPrecheck(raw, contact)
       values.header = [{ key, text: resolved }]
       requiredParams.push({ where: 'header', key, raw, resolved })
     }
 
     values.body = spec.body.requiredKeys.map(k => {
       const raw = String(bodyMap[k] ?? '')
-      const resolved = resolveVarValue(raw, contact)
+      const resolved = resolveVarValueForPrecheck(raw, contact)
       requiredParams.push({ where: 'body', key: k, raw, resolved })
       return { key: k, text: resolved }
     })

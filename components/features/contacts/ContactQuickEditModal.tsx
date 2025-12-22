@@ -33,6 +33,22 @@ const sanitizeCustomFieldsForUpdate = (fields?: Record<string, any>) => {
   return out;
 };
 
+const getContactDisplayName = (contact?: Contact | null) => {
+  if (!contact) return '';
+  const name = (contact.name ?? '').trim();
+  if (name) return name;
+
+  // Alguns imports/fluxos podem guardar o nome em custom_fields.
+  const cf = (contact.custom_fields && typeof contact.custom_fields === 'object') ? contact.custom_fields : {};
+  const candidates = ['nome', 'name', 'full_name', 'fullName', 'first_name', 'firstName'];
+  for (const key of candidates) {
+    const raw = (cf as any)?.[key];
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+
+  return '';
+};
+
 type ContactsQueryData =
   | ContactsCache
   | Contact[]
@@ -87,6 +103,10 @@ interface ContactQuickEditModalProps {
   // Quando true, o modo focused mostra também o campo Nome (útil para contexto/ajustes extras).
   // Quando false, o modo focused mostra APENAS os campos necessários para destravar.
   showNameInFocusedMode?: boolean;
+
+  // Quando true, e o contato estiver sem nome, o modo focused também mostra o campo Nome.
+  // Por padrão fica false para manter o modal estritamente “pre-check-driven”.
+  showNameWhenMissingInFocusedMode?: boolean;
 }
 
 export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
@@ -98,8 +118,10 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
   onSaved,
   mode = 'full',
   showNameInFocusedMode = true,
+  showNameWhenMissingInFocusedMode = false,
 }) => {
   const queryClient = useQueryClient();
+  const nameRef = useRef<HTMLInputElement | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const customRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -133,7 +155,18 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
   // por padrão mostramos Nome + o campo que precisa de correção.
   // (pode ser desativado para um UX mais “cirúrgico”).
   const isFocusedMode = mode === 'focused' && focusTargets.length > 0;
-  const shouldShowName = !isFocusedMode || showNameInFocusedMode;
+  const isNameMissing = useMemo(() => {
+    if (!isFocusedMode) return false;
+    const c = contactQuery.data;
+    const displayName = getContactDisplayName(c);
+    return !String(displayName || '').trim();
+  }, [contactQuery.data, isFocusedMode]);
+
+  const shouldShowName =
+    !isFocusedMode ||
+    showNameInFocusedMode ||
+    focusTargets.some((t) => t.type === 'name') ||
+    (showNameWhenMissingInFocusedMode && isNameMissing);
   const shouldShowEmail = !isFocusedMode || focusTargets.some((t) => t.type === 'email');
   const focusedCustomFieldKeys = useMemo(() => {
     const keys = focusTargets.filter((t) => t.type === 'custom_field').map((t) => (t as any).key as string);
@@ -163,6 +196,7 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
   const focusLabel = useMemo(() => {
     if (focusTargets.length === 0) return null;
     const labels = focusTargets.map((t) => {
+      if (t.type === 'name') return 'Nome';
       if (t.type === 'email') return 'Email';
       const key = (t as any).key as string;
       const field = customFields.find((f) => f.key === key);
@@ -179,6 +213,12 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
     const t = setTimeout(() => {
       const first = focusTargets[0];
       if (!first) return;
+
+      if (first.type === 'name') {
+        nameRef.current?.focus();
+        nameRef.current?.select();
+        return;
+      }
 
       if (first.type === 'email') {
         emailRef.current?.focus();
@@ -250,12 +290,42 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
   const isError = contactQuery.isError;
   const errorMessage = (contactQuery.error as any)?.message as string | undefined;
 
+  const contactHeaderText = useMemo(() => {
+    const c = contactQuery.data;
+    if (!c) return null;
+    const parts: string[] = [];
+    const name = getContactDisplayName(c);
+    const phone = (c.phone ?? '').trim();
+    const email = (c.email ?? '').trim();
+    parts.push(name || 'Sem nome');
+    if (phone) parts.push(phone);
+    if (email) parts.push(email);
+    if (parts.length === 0) return 'Contato';
+    return parts.join(' • ');
+  }, [contactQuery.data]);
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-60 flex items-center justify-center p-4">
       <div className="bg-zinc-950 border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in duration-200">
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-bold text-white">{title}</h2>
+
+            {!!contactId && (
+              <p className="text-xs text-gray-400 mt-1">
+                <span className="text-gray-500">Contato:</span>{' '}
+                {contactQuery.isLoading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="inline-block h-3 w-36 rounded bg-white/10 animate-pulse" />
+                  </span>
+                ) : contactHeaderText ? (
+                  <span className="text-gray-200 font-medium">{contactHeaderText}</span>
+                ) : (
+                  <span className="text-gray-500">—</span>
+                )}
+              </p>
+            )}
+
             {focusLabel && (
               <p className="text-xs text-gray-500 mt-1">
                 Dica: complete <span className="text-white">{focusLabel}</span> para destravar o envio.
@@ -313,7 +383,11 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
             {shouldShowName && (
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Nome</label>
+                {isFocusedMode && showNameWhenMissingInFocusedMode && isNameMissing && (
+                  <p className="text-xs text-gray-500 mb-2">Este contato está sem nome cadastrado. Vale a pena preencher.</p>
+                )}
                 <input
+                  ref={nameRef}
                   className="w-full bg-zinc-900 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-primary-500 outline-none transition-colors"
                   value={form.name}
                   onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}

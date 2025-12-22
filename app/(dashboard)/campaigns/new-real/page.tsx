@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
+import * as Dialog from '@radix-ui/react-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Braces, Eye, MessageSquare, Plus, Sparkles, Users } from 'lucide-react'
+import { Braces, Calendar as CalendarIcon, Eye, Layers, MessageSquare, Plus, RefreshCw, Sparkles, Users, Wand2 } from 'lucide-react'
 import { CustomFieldsSheet } from '@/components/features/contacts/CustomFieldsSheet'
 import {
   Sheet,
@@ -31,12 +32,45 @@ import { getBrazilUfFromPhone } from '@/lib/br-geo'
 import { normalizePhoneNumber } from '@/lib/phone-formatter'
 import { parsePhoneNumber } from 'libphonenumber-js'
 import { humanizePrecheckReason, humanizeVarSource, type ContactFixFocus, type ContactFixTarget } from '@/lib/precheck-humanizer'
+import { Calendar } from '@/components/ui/calendar'
+import DateTimePicker from '@/components/ui/date-time-picker'
+import { cn } from '@/lib/utils'
+import { ptBR } from 'date-fns/locale'
 
 const steps = [
   { id: 1, label: 'Configuracao' },
   { id: 2, label: 'Publico' },
   { id: 3, label: 'Revisao' },
 ]
+
+const getDefaultScheduleTime = () => {
+  const d = new Date()
+  d.setMinutes(d.getMinutes() + 60)
+  const minutes = d.getMinutes()
+  if (minutes <= 30) {
+    d.setMinutes(30, 0, 0)
+  } else {
+    d.setHours(d.getHours() + 1)
+    d.setMinutes(0, 0, 0)
+  }
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+const formatDateLabel = (value: string) => {
+  if (!value) return 'dd/mm/aaaa'
+  const [y, m, d] = value.split('-')
+  if (!y || !m || !d) return 'dd/mm/aaaa'
+  return `${d}/${m}/${y}`
+}
+
+const parsePickerDate = (value: string) => {
+  if (!value) return undefined
+  const [y, m, d] = value.split('-').map((v) => Number(v))
+  if (!y || !m || !d) return undefined
+  return new Date(y, m - 1, d, 12, 0, 0)
+}
 
 type Contact = {
   id: string
@@ -82,7 +116,7 @@ type TemplateVar = {
 }
 
 const fetchJson = async <T,>(url: string): Promise<T> => {
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
     const message = await res.text()
     throw new Error(message || 'Erro ao buscar dados')
@@ -112,8 +146,9 @@ export default function CampaignsNewRealPage() {
   const [templateSearch, setTemplateSearch] = useState('')
   const [scheduleMode, setScheduleMode] = useState('imediato')
   const [isFieldsSheetOpen, setIsFieldsSheetOpen] = useState(false)
-  const [scheduleDate, setScheduleDate] = useState('')
-  const [scheduleTime, setScheduleTime] = useState('')
+  const [scheduleDate, setScheduleDate] = useState(() => new Date().toLocaleDateString('en-CA'))
+  const [scheduleTime, setScheduleTime] = useState(() => getDefaultScheduleTime())
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   const [templateVars, setTemplateVars] = useState<{ header: TemplateVar[]; body: TemplateVar[] }>({
     header: [],
     body: [],
@@ -429,14 +464,27 @@ export default function CampaignsNewRealPage() {
 
   const resolveAudienceContacts = async (): Promise<Contact[]> => {
     if (audienceMode === 'teste') {
-      const list: Contact[] = []
-      if (sendToConfigured && configuredContact) {
-        list.push(configuredContact)
-      }
-      if (sendToSelected && selectedTestContact) {
-        list.push(selectedTestContact)
-      }
-      return list
+      const baseList: Contact[] = []
+      if (sendToConfigured && configuredContact) baseList.push(configuredContact)
+      if (sendToSelected && selectedTestContact) baseList.push(selectedTestContact)
+
+      // Importantíssimo: após "Corrigir" (PATCH) ou "Aplicar em massa", o estado local pode ficar stale
+      // (selectedTestContact/configuredContact não são geridos pelo cache do React Query).
+      // Aqui, por ser no máximo 2 contatos, buscamos do servidor para garantir custom_fields atualizados.
+      const uniq = Array.from(new Map(baseList.map((c) => [c.id, c])).values())
+
+      const refreshed = await Promise.all(
+        uniq.map(async (c) => {
+          try {
+            const latest = await fetchJson<Contact>(`/api/contacts/${encodeURIComponent(c.id)}`)
+            return latest || c
+          } catch {
+            return c
+          }
+        })
+      )
+
+      return refreshed
     }
 
     const contacts = await fetchJson<Contact[]>('/api/contacts')
@@ -545,8 +593,18 @@ export default function CampaignsNewRealPage() {
 
         setPrecheckResult(precheck)
 
+        // Se houver ignorados por falta de variáveis obrigatórias, exige correção antes de lançar.
+        const hasMissingRequired = Array.isArray((precheck as any)?.results)
+          ? (precheck as any).results.some((r: any) => r && !r.ok && r.skipCode === 'MISSING_REQUIRED_PARAM')
+          : false
+
         if ((precheck?.totals?.valid ?? 0) === 0) {
           setLaunchError('Nenhum destinatário válido para envio. Revise os ignorados e valide novamente.')
+          return
+        }
+
+        if (hasMissingRequired && (precheck?.totals?.skipped ?? 0) > 0) {
+          setLaunchError('Existem contatos ignorados por falta de dados obrigatórios. Corrija os ignorados e valide novamente antes de lançar.')
           return
         }
       } catch (err) {
@@ -593,7 +651,12 @@ export default function CampaignsNewRealPage() {
       const seen = new Set<string>()
       const out: ContactFixTarget[] = []
       for (const t of targets) {
-        const id = t.type === 'email' ? 'email' : `custom_field:${t.key}`
+        const id =
+          t.type === 'email'
+            ? 'email'
+            : t.type === 'name'
+              ? 'name'
+              : `custom_field:${t.key}`
         if (seen.has(id)) continue
         seen.add(id)
         out.push(t)
@@ -624,7 +687,7 @@ export default function CampaignsNewRealPage() {
       }
       const focus = focusFromTargets(targets) || human.focus || null
 
-      // Se não temos nada focável (ex.: token nome/telefone), não oferece correção via modal.
+      // Se não temos nada focável (ex.: token de telefone), não oferece correção via modal.
       if (!focus) continue
 
       const label = String(r.name || r.phone || 'Contato')
@@ -671,6 +734,30 @@ export default function CampaignsNewRealPage() {
       out[k] = Array.from(set)
     }
     return out
+  }, [precheckResult, customFieldLabelByKey])
+
+  const systemMissingCounts = useMemo(() => {
+    const results = precheckResult?.results as any[] | undefined
+    if (!results || !Array.isArray(results)) return { name: 0, email: 0 }
+
+    const name = new Set<string>()
+    const email = new Set<string>()
+
+    for (const r of results) {
+      if (!r || r.ok) continue
+      if (r.skipCode !== 'MISSING_REQUIRED_PARAM') continue
+      if (!r.contactId) continue
+
+      const missing = Array.isArray(r.missing) ? (r.missing as any[]) : []
+      for (const m of missing) {
+        const inf = humanizeVarSource(String(m?.raw || ''), customFieldLabelByKey)
+        if (!inf.focus) continue
+        if (inf.focus.type === 'name') name.add(String(r.contactId))
+        if (inf.focus.type === 'email') email.add(String(r.contactId))
+      }
+    }
+
+    return { name: name.size, email: email.size }
   }, [precheckResult, customFieldLabelByKey])
 
   const bulkKeys = useMemo(() => {
@@ -1014,10 +1101,14 @@ export default function CampaignsNewRealPage() {
 
   const isConfigComplete = Boolean(campaignName.trim()) && templateSelected && missingTemplateVars === 0
   const isAudienceComplete = audienceMode === 'teste' ? selectedTestCount > 0 : audienceCount > 0
-  const isReviewComplete =
+  const precheckNeedsFix =
+    Boolean(precheckTotals && precheckTotals.skipped > 0) && (fixCandidates.length > 0 || bulkKeys.length > 0)
+  const isScheduleComplete =
     scheduleMode !== 'agendar' || (scheduleDate.trim().length > 0 && scheduleTime.trim().length > 0)
+  const isReviewComplete = !precheckNeedsFix && isScheduleComplete
   const canContinue = step === 1 ? isConfigComplete : step === 2 ? isAudienceComplete : isReviewComplete
   const scheduleLabel = scheduleMode === 'agendar' ? 'Agendado' : 'Imediato'
+  const scheduleSummaryLabel = precheckNeedsFix ? 'Bloqueado (pre-check pendente)' : scheduleLabel
   const combineModeLabel = combineMode === 'or' ? 'Mais alcance' : 'Mais preciso'
   const combineFilters = [...selectedTags, ...selectedCountries, ...selectedStates]
   const combinePreview = combineFilters.length
@@ -2147,13 +2238,13 @@ export default function CampaignsNewRealPage() {
                 {precheckTotals && precheckTotals.skipped > 0 && (
                   <div className="mt-5 rounded-xl border border-white/10 bg-zinc-950/30 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-white">Corrigir ignorados</p>
                         <p className="text-xs text-gray-500">
-                          Alguns contatos estao sendo ignorados por falta de email/campo personalizado. Corrija e o pre-check destrava.
+                          Alguns contatos estao sendo ignorados por falta de Nome, Email ou campo personalizado. Corrija e o pre-check destrava.
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-end gap-2 sm:flex-nowrap">
                         <button
                           type="button"
                           disabled={!bulkKeys.length}
@@ -2161,32 +2252,35 @@ export default function CampaignsNewRealPage() {
                             setBulkError(null)
                             setBulkOpen(true)
                           }}
-                          className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+                          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                             bulkKeys.length
-                              ? 'border-amber-400/40 bg-amber-500/10 text-amber-200 hover:border-amber-300/60'
-                              : 'border-white/10 bg-zinc-950/40 text-gray-500'
+                              ? 'border-amber-500/20 bg-zinc-950/40 text-amber-200 hover:bg-amber-500/10 hover:border-amber-500/40'
+                              : 'border-white/10 bg-zinc-950/30 text-gray-600'
                           }`}
                         >
-                          Aplicar em massa
+                          <Layers size={16} className={bulkKeys.length ? 'text-amber-300' : 'text-gray-600'} />
+                          <span className="whitespace-nowrap">Aplicar em massa</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => runPrecheck()}
-                          className="rounded-full border border-white/10 bg-zinc-950/40 px-4 py-2 text-xs font-semibold text-gray-200 hover:border-white/20"
+                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white px-3 py-2 text-sm font-semibold text-black transition-colors hover:bg-gray-200"
                         >
-                          Validar novamente
+                          <RefreshCw size={16} />
+                          <span className="whitespace-nowrap">Validar novamente</span>
                         </button>
                         <button
                           type="button"
                           disabled={!fixCandidates.length}
                           onClick={startBatchFix}
-                          className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+                          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                             fixCandidates.length
-                              ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200 hover:border-emerald-300/60'
-                              : 'border-white/10 bg-zinc-950/40 text-gray-500'
+                              ? 'border-primary-500/40 bg-primary-600 text-white hover:bg-primary-500'
+                              : 'border-white/10 bg-zinc-950/30 text-gray-600'
                           }`}
                         >
-                          Corrigir em lote
+                          <Wand2 size={16} className={fixCandidates.length ? 'text-white' : 'text-gray-600'} />
+                          <span className="whitespace-nowrap">Corrigir em lote</span>
                         </button>
                       </div>
                     </div>
@@ -2199,6 +2293,14 @@ export default function CampaignsNewRealPage() {
                             <p className="mt-1 text-xs text-gray-500">
                               Preenche o campo selecionado para todos os contatos ignorados que estao faltando esse dado.
                             </p>
+                            {(systemMissingCounts.name > 0 || systemMissingCounts.email > 0) && (
+                              <p className="mt-2 text-xs text-gray-600">
+                                Obs: {systemMissingCounts.name > 0 ? `${systemMissingCounts.name} faltam Nome` : null}
+                                {systemMissingCounts.name > 0 && systemMissingCounts.email > 0 ? ' e ' : null}
+                                {systemMissingCounts.email > 0 ? `${systemMissingCounts.email} faltam Email` : null}
+                                {' — isso nao e preenchido aqui; use “Corrigir em lote”.'}
+                              </p>
+                            )}
                           </div>
                           <button
                             type="button"
@@ -2207,7 +2309,7 @@ export default function CampaignsNewRealPage() {
                               setBulkOpen(false)
                               setBulkError(null)
                             }}
-                            className={`text-xs ${bulkLoading ? 'text-gray-600' : 'text-gray-400 hover:text-white'}`}
+                            className={`text-sm ${bulkLoading ? 'text-gray-600' : 'text-gray-400 hover:text-white'}`}
                           >
                             Fechar
                           </button>
@@ -2242,6 +2344,9 @@ export default function CampaignsNewRealPage() {
                             <p className="text-xs text-gray-600">
                               Afetados: <span className="text-gray-400">{bulkKey ? (bulkCustomFieldTargets[bulkKey]?.length ?? 0) : 0}</span>
                             </p>
+                            <p className="text-[11px] text-gray-600">
+                              Dica: “Aplicar em massa” so resolve campos personalizados. Se algum ignorado pedir Nome/Email, ele aparece no “Corrigir em lote”.
+                            </p>
                           </div>
                         </div>
 
@@ -2255,7 +2360,7 @@ export default function CampaignsNewRealPage() {
                               setBulkOpen(false)
                               setBulkError(null)
                             }}
-                            className="rounded-full border border-white/10 bg-zinc-950/40 px-4 py-2 text-xs font-semibold text-gray-200 hover:border-white/20"
+                            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-gray-200 transition-colors hover:border-white/20"
                             disabled={bulkLoading}
                           >
                             Cancelar
@@ -2264,10 +2369,10 @@ export default function CampaignsNewRealPage() {
                             type="button"
                             onClick={applyBulkCustomField}
                             disabled={bulkLoading}
-                            className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+                            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                               !bulkLoading
-                                ? 'border-amber-400/40 bg-amber-500/10 text-amber-200 hover:border-amber-300/60'
-                                : 'border-white/10 bg-zinc-950/40 text-gray-500'
+                                ? 'border-amber-500/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/15 hover:border-amber-500/50'
+                                : 'border-white/10 bg-zinc-950/30 text-gray-600'
                             }`}
                           >
                             {bulkLoading ? 'Aplicando...' : 'Aplicar agora'}
@@ -2290,7 +2395,7 @@ export default function CampaignsNewRealPage() {
                             <button
                               type="button"
                               onClick={() => openQuickEdit({ contactId: c.contactId, focus: c.focus, title: c.title })}
-                              className="shrink-0 rounded-full border border-white/10 bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-gray-200 hover:border-white/20"
+                              className="shrink-0 rounded-lg border border-white/10 bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-gray-200 transition-colors hover:border-white/20"
                             >
                               Corrigir
                             </button>
@@ -2306,65 +2411,98 @@ export default function CampaignsNewRealPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-semibold text-white">Agendamento</h2>
-                  <p className="text-sm text-gray-500">Defina se o envio sera agora ou programado.</p>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setScheduleMode('imediato')}
-                    className={`rounded-xl border px-4 py-3 text-left text-sm ${
-                      scheduleMode === 'imediato'
-                        ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
-                        : 'border-white/10 bg-zinc-950/40 text-gray-400'
-                    }`}
-                  >
-                    Imediato
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setScheduleMode('agendar')}
-                    className={`rounded-xl border px-4 py-3 text-left text-sm ${
-                      scheduleMode === 'agendar'
-                        ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
-                        : 'border-white/10 bg-zinc-950/40 text-gray-400'
-                    }`}
-                  >
-                    Agendar
-                  </button>
-                </div>
-                <div
-                  className={`mt-4 transition ${
-                    scheduleMode === 'agendar' ? 'opacity-100' : 'opacity-40'
-                  }`}
-                >
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-gray-500">Data</label>
-                      <input
-                        className="w-full rounded-xl border border-white/10 bg-zinc-950/40 px-4 py-3 text-sm text-white"
-                        type="date"
-                        disabled={scheduleMode !== 'agendar'}
-                        value={scheduleDate}
-                        onChange={(event) => setScheduleDate(event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-widest text-gray-500">Horario</label>
-                      <input
-                        className="w-full rounded-xl border border-white/10 bg-zinc-950/40 px-4 py-3 text-sm text-white"
-                        type="time"
-                        disabled={scheduleMode !== 'agendar'}
-                        value={scheduleTime}
-                        onChange={(event) => setScheduleTime(event.target.value)}
-                      />
-                    </div>
+              {!precheckNeedsFix ? (
+                <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
+                  <div className="space-y-1">
+                    <h2 className="text-lg font-semibold text-white">Agendamento</h2>
+                    <p className="text-sm text-gray-500">Defina se o envio sera agora ou programado.</p>
                   </div>
-                  <p className="mt-3 text-xs text-gray-500">Fuso fixo: America/Sao_Paulo.</p>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleMode('imediato')}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                        scheduleMode === 'imediato'
+                          ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+                          : 'border-white/10 bg-zinc-950/40 text-gray-400'
+                      }`}
+                    >
+                      Imediato
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleMode('agendar')}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                        scheduleMode === 'agendar'
+                          ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+                          : 'border-white/10 bg-zinc-950/40 text-gray-400'
+                      }`}
+                    >
+                      Agendar
+                    </button>
+                  </div>
+                  <div className={`mt-4 transition ${scheduleMode === 'agendar' ? 'opacity-100' : 'opacity-40'}`}>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase tracking-widest text-gray-500">Data</label>
+                        <Dialog.Root open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                          <Dialog.Trigger asChild>
+                            <button
+                              type="button"
+                              disabled={scheduleMode !== 'agendar'}
+                              className="w-full rounded-xl border border-white/10 bg-zinc-950/40 px-4 py-3 text-sm text-white flex items-center justify-between gap-3 disabled:opacity-50"
+                            >
+                              <span className={scheduleDate ? 'text-white' : 'text-gray-500'}>{formatDateLabel(scheduleDate)}</span>
+                              <CalendarIcon size={16} className="text-emerald-400" />
+                            </button>
+                          </Dialog.Trigger>
+                          <Dialog.Portal>
+                            <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" />
+                            <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-fit max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-emerald-500/20 bg-black p-3 text-white shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
+                              <div className="flex justify-center">
+                                <Calendar
+                                  mode="single"
+                                  selected={parsePickerDate(scheduleDate)}
+                                  onSelect={(date) => {
+                                    if (!date) return
+                                    setScheduleDate(date.toLocaleDateString('en-CA'))
+                                    setIsDatePickerOpen(false)
+                                  }}
+                                  fromDate={new Date()}
+                                  locale={ptBR}
+                                  className="w-fit rounded-xl border border-emerald-500/10 bg-black p-2"
+                                />
+                              </div>
+
+                              <div className="mt-3 w-full">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsDatePickerOpen(false)}
+                                  className="h-11 w-full rounded-xl bg-emerald-500 text-black font-semibold hover:bg-emerald-400 transition-colors"
+                                >
+                                  Confirmar
+                                </button>
+                              </div>
+                            </Dialog.Content>
+                          </Dialog.Portal>
+                        </Dialog.Root>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs uppercase tracking-widest text-gray-500">Horario</label>
+                        <DateTimePicker value={scheduleTime} onChange={(value) => setScheduleTime(value)} disabled={scheduleMode !== 'agendar'} />
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-gray-500">Fuso fixo: America/Sao_Paulo.</p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+                  <p className="text-sm font-semibold text-amber-200">Agendamento bloqueado</p>
+                  <p className="mt-1 text-xs text-amber-200/70">
+                    Resolva os ignorados do pre-check (Nome/Email/campo personalizado) para liberar o agendamento e o disparo.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -2422,7 +2560,8 @@ export default function CampaignsNewRealPage() {
                   <>Defina o nome da campanha</>
                 )}
                 {step === 2 && !isAudienceComplete && 'Selecione um publico valido'}
-                {step === 3 && !isReviewComplete && 'Defina data e horario do agendamento'}
+                {step === 3 && precheckNeedsFix && 'Corrija os ignorados do pre-check para liberar agendamento e disparo'}
+                {step === 3 && !precheckNeedsFix && !isReviewComplete && 'Defina data e horario do agendamento'}
                 {canContinue && footerSummary}
               </div>
               <button
@@ -2469,7 +2608,7 @@ export default function CampaignsNewRealPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Agendamento</span>
-                <span className="text-white">{scheduleLabel}</span>
+                <span className="text-white">{scheduleSummaryLabel}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Nome</span>
