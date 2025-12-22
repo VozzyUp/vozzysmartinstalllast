@@ -163,6 +163,8 @@ export default function CampaignsNewRealPage() {
   const [precheckError, setPrecheckError] = useState<string | null>(null)
   const [precheckTotals, setPrecheckTotals] = useState<{ valid: number; skipped: number } | null>(null)
   const [precheckResult, setPrecheckResult] = useState<CampaignPrecheckResult | null>(null)
+  const [lastPrecheckKey, setLastPrecheckKey] = useState<string | null>(null)
+  const [showPrecheckPanel, setShowPrecheckPanel] = useState(false)
 
   // Aplicar em massa (bulk) um campo personalizado para desbloquear ignorados.
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -521,6 +523,7 @@ export default function CampaignsNewRealPage() {
     if (!templateSelected || !selectedTemplate?.name) return
     if (audienceMode === 'teste' && selectedTestCount === 0) return
 
+    setLastPrecheckKey(precheckContextKey)
     setIsPrecheckLoading(true)
     setPrecheckError(null)
     try {
@@ -693,8 +696,10 @@ export default function CampaignsNewRealPage() {
       // Se não temos nada focável (ex.: token de telefone), não oferece correção via modal.
       if (!focus) continue
 
-      const label = String(r.name || r.phone || 'Contato')
-      const subtitle = `${label} • ${String(r.phone || '')}`.trim()
+      const name = String(r.name || '').trim()
+      const phone = String(r.phone || '').trim()
+      const label = name || phone || 'Contato'
+      const subtitle = phone && label !== phone ? `${label} • ${phone}` : label
 
       out.push({
         contactId: String(r.contactId),
@@ -874,32 +879,45 @@ export default function CampaignsNewRealPage() {
     setQuickEditTitle('Editar contato')
   }
 
-  useEffect(() => {
-    if (step !== 2) return
-    if (!templateSelected || !selectedTemplate?.name) return
-    if (audienceMode === 'teste' && selectedTestCount === 0) return
-    runPrecheck()
-  }, [
-    step,
-    templateSelected,
-    selectedTemplate?.name,
-    audienceMode,
-    selectedTestCount,
-    sendToConfigured,
-    sendToSelected,
-    selectedTestContact?.id,
-    configuredContact?.id,
-    combineMode,
-    selectedTags.join(','),
-    selectedCountries.join(','),
-    selectedStates.join(','),
-    templateVars.header.map((item) => item.value).join('|'),
-    templateVars.body.map((item) => item.value).join('|'),
-    Object.entries(templateButtonVars)
+  const precheckContextKey = useMemo(() => {
+    if (!templateSelected || !selectedTemplate?.name) return 'no-template'
+    const buttonVars = Object.entries(templateButtonVars)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
-      .join('|'),
+    return JSON.stringify({
+      audienceMode,
+      selectedTags,
+      selectedCountries,
+      selectedStates,
+      sendToConfigured,
+      sendToSelected,
+      selectedTestContactId: selectedTestContact?.id || '',
+      configuredContactId: configuredContact?.id || '',
+      templateName: selectedTemplate.name,
+      headerVars: templateVars.header.map((item) => item.value.trim()),
+      bodyVars: templateVars.body.map((item) => item.value.trim()),
+      buttonVars,
+    })
+  }, [
+    audienceMode,
+    configuredContact?.id,
+    selectedCountries,
+    selectedStates,
+    selectedTags,
+    selectedTemplate?.name,
+    selectedTestContact?.id,
+    sendToConfigured,
+    sendToSelected,
+    templateSelected,
+    templateVars.body,
+    templateVars.header,
+    templateButtonVars,
   ])
+
+  useEffect(() => {
+    // Hide pre-check panel when the audience context changes.
+    setShowPrecheckPanel(false)
+  }, [precheckContextKey])
 
   const baseCount = statsQuery.data?.total ?? 0
   const segmentEstimate = segmentCountQuery.data?.matched ?? baseCount
@@ -916,12 +934,7 @@ export default function CampaignsNewRealPage() {
   const audiencePricing = hasPricing
     ? getPricingBreakdown(selectedTemplate!.category, audienceCount, 0, exchangeRate!)
     : null
-  const audienceCostFormatted =
-    audienceMode === 'teste'
-      ? formatCurrency(0)
-      : hasPricing
-        ? audiencePricing!.totalBRLFormatted
-        : 'R$ --'
+  const audienceCostFormatted = hasPricing ? audiencePricing!.totalBRLFormatted : 'R$ --'
   const displayAudienceCost = isSegmentCountLoading ? '—' : audienceCostFormatted
   const pricePerMessageLabel = hasPricing ? `${audiencePricing!.pricePerMessageBRLFormatted}/msg` : 'R$ --/msg'
   const exchangeRateLabel = hasRate ? `USD/BRL ${exchangeRate!.toFixed(2).replace('.', ',')}` : 'Câmbio indisponível'
@@ -1120,9 +1133,14 @@ export default function CampaignsNewRealPage() {
   const isAudienceComplete = audienceMode === 'teste' ? selectedTestCount > 0 : audienceCount > 0
   const precheckNeedsFix =
     Boolean(precheckTotals && precheckTotals.skipped > 0) && (fixCandidates.length > 0 || bulkKeys.length > 0)
-  const isPrecheckBlocked = precheckNeedsFix || isPrecheckLoading || Boolean(precheckError)
+  const isPrecheckBlocked =
+    lastPrecheckKey === precheckContextKey &&
+    (precheckNeedsFix || isPrecheckLoading || Boolean(precheckError))
   const shouldShowPrecheckPanel =
-    step === 2 && (isPrecheckLoading || precheckError || (precheckTotals?.skipped ?? 0) > 0)
+    step === 2 &&
+    showPrecheckPanel &&
+    lastPrecheckKey === precheckContextKey &&
+    (isPrecheckLoading || precheckError || (precheckTotals?.skipped ?? 0) > 0)
   const isScheduleComplete =
     scheduleMode !== 'agendar' || (scheduleDate.trim().length > 0 && scheduleTime.trim().length > 0)
   const canContinue =
@@ -1822,7 +1840,7 @@ export default function CampaignsNewRealPage() {
                 )}
               </div>
 
-              {audienceMode === 'todos' && (
+              {audienceMode === 'todos' && !shouldShowPrecheckPanel && (
                 <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <div className="space-y-1">
                     <h2 className="text-lg font-semibold text-white">Todos os contatos</h2>
@@ -1848,7 +1866,7 @@ export default function CampaignsNewRealPage() {
                 </div>
               )}
 
-              {audienceMode === 'segmentos' && (
+              {audienceMode === 'segmentos' && !shouldShowPrecheckPanel && (
                 <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <Sheet open={showStatesPanel} onOpenChange={setShowStatesPanel}>
                     <SheetContent className="w-full border-l border-white/10 bg-zinc-950 p-0 sm:max-w-md">
@@ -2098,7 +2116,7 @@ export default function CampaignsNewRealPage() {
                 </div>
               )}
 
-              {audienceMode === 'teste' && (
+              {audienceMode === 'teste' && !shouldShowPrecheckPanel && (
                 <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <div className="space-y-1">
                     <h2 className="text-lg font-semibold text-white">Contato de teste</h2>
@@ -2191,20 +2209,10 @@ export default function CampaignsNewRealPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="mt-4">
                     <p className="text-xs text-gray-500">
                       Envio de teste nao consome limite diario. Selecione 1 ou 2 contatos.
                     </p>
-                    <button
-                      disabled={!selectedTestCount}
-                      className={`rounded-full border px-4 py-2 text-xs font-semibold ${
-                        selectedTestCount
-                          ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
-                          : 'border-white/10 bg-zinc-950/40 text-gray-500'
-                      }`}
-                    >
-                      Enviar teste
-                    </button>
                   </div>
                 </div>
               )}
@@ -2395,8 +2403,8 @@ export default function CampaignsNewRealPage() {
                     )}
 
                     {fixCandidates.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {fixCandidates.slice(0, 6).map((c) => (
+                      <div className="mt-4 max-h-44 space-y-2 overflow-y-auto pr-2">
+                        {fixCandidates.map((c) => (
                           <div
                             key={c.contactId}
                             className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2"
@@ -2415,8 +2423,8 @@ export default function CampaignsNewRealPage() {
                           </div>
                         ))}
 
-                        {fixCandidates.length > 6 && (
-                          <p className="pt-1 text-xs text-gray-500">+ {fixCandidates.length - 6} outros — use “Corrigir em lote”.</p>
+                        {fixCandidates.length > 3 && (
+                          <p className="pt-1 text-xs text-gray-500">Role para ver todos ou use “Corrigir em lote”.</p>
                         )}
                       </div>
                     )}
@@ -2575,10 +2583,19 @@ export default function CampaignsNewRealPage() {
                 {canContinue && footerSummary}
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!canContinue || isLaunching) return
-                  if (step < 3) {
-                    setStep(step + 1)
+                  if (step === 1) {
+                    setStep(2)
+                    return
+                  }
+                  if (step === 2) {
+                    const result = await runPrecheck()
+                    const totals = result?.totals
+                    const skipped = totals?.skipped ?? 0
+                    const valid = totals?.valid ?? 0
+                    if (!result || skipped > 0 || valid === 0) return
+                    setStep(3)
                     return
                   }
                   handleLaunch()
