@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 
 export function CreateFlowWithAIDialog(props: {
   isCreating: boolean
-  onCreate: (input: { name: string; prompt: string }) => void
+  onCreate: (input: { name: string; prompt: string }) => Promise<any>
 }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -80,14 +80,18 @@ export function CreateFlowWithAIDialog(props: {
           </Button>
           <Button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               const n = name.trim()
               const p = prompt.trim()
               if (!n || !p) return
-              props.onCreate({ name: n, prompt: p })
-              setOpen(false)
-              setName('')
-              setPrompt('')
+              try {
+                await props.onCreate({ name: n, prompt: p })
+                setOpen(false)
+                setName('')
+                setPrompt('')
+              } catch {
+                // Errors handled by mutation toasts.
+              }
             }}
             disabled={!canSubmit}
           >

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import {
   DropdownMenu,
@@ -19,6 +20,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { TemplatePreviewCard } from '@/components/ui/TemplatePreviewCard'
+import type { Template, TemplateButton, TemplateComponent } from '@/types'
+import { buildTemplateSpecV1, resolveVarValue } from '@/lib/whatsapp/template-contract'
+import { replaceTemplatePlaceholders } from '@/lib/whatsapp/placeholder'
+import { campaignService } from '@/services'
+import { getBrazilUfFromPhone } from '@/lib/br-geo'
+import { normalizePhoneNumber } from '@/lib/phone-formatter'
+import { parsePhoneNumber } from 'libphonenumber-js'
 
 const steps = [
   { id: 1, label: 'Configuracao' },
@@ -26,30 +35,12 @@ const steps = [
   { id: 3, label: 'Revisao' },
 ]
 
-type TemplateComponent = {
-  type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS'
-  format?: string
-  text?: string
-  buttons?: Array<{ type: string; text: string; url?: string; phone_number?: string }>
-}
-
-type Template = {
-  id?: string
-  name: string
-  category?: string
-  language?: string
-  status?: string
-  preview?: string
-  content?: string
-  components?: TemplateComponent[]
-  parameterFormat?: 'positional' | 'named'
-}
-
 type Contact = {
   id: string
   name: string
   phone: string
   email?: string | null
+  tags?: string[]
   custom_fields?: Record<string, unknown>
 }
 
@@ -81,7 +72,8 @@ type TestContact = {
 }
 
 type TemplateVar = {
-  id: string
+  key: string
+  placeholder: string
   value: string
   required: boolean
 }
@@ -96,6 +88,7 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
 }
 
 export default function CampaignsNewRealPage() {
+  const router = useRouter()
   const [step, setStep] = useState(1)
   const [audienceMode, setAudienceMode] = useState('todos')
   const [combineMode, setCombineMode] = useState('or')
@@ -122,6 +115,13 @@ export default function CampaignsNewRealPage() {
     header: [],
     body: [],
   })
+  const [templateButtonVars, setTemplateButtonVars] = useState<Record<string, string>>({})
+  const [templateSpecError, setTemplateSpecError] = useState<string | null>(null)
+  const [isLaunching, setIsLaunching] = useState(false)
+  const [launchError, setLaunchError] = useState<string | null>(null)
+  const [isPrecheckLoading, setIsPrecheckLoading] = useState(false)
+  const [precheckError, setPrecheckError] = useState<string | null>(null)
+  const [precheckTotals, setPrecheckTotals] = useState<{ valid: number; skipped: number } | null>(null)
   const [campaignName, setCampaignName] = useState(() => {
     const now = new Date()
     const day = String(now.getDate()).padStart(2, '0')
@@ -224,7 +224,7 @@ export default function CampaignsNewRealPage() {
 
   const configuredName = testContactQuery.data?.name?.trim() || configuredContact?.name || ''
   const configuredPhone = testContactQuery.data?.phone?.trim() || configuredContact?.phone || ''
-  const hasConfiguredContact = Boolean(configuredPhone)
+  const hasConfiguredContact = Boolean(configuredContact?.phone)
   const configuredLabel = configuredPhone
     ? [configuredName || 'Contato de teste', configuredPhone].filter(Boolean).join(' - ')
     : 'Defina um telefone de teste'
@@ -303,7 +303,7 @@ export default function CampaignsNewRealPage() {
         preferredContact?.phone ||
         configuredContact?.phone ||
         testContactQuery.data?.phone ||
-        '+55 11 99999-0001',
+        '+5511999990001',
       email: preferredContact?.email || 'contato@smartzap.com',
     } as Record<string, string>
     customFieldKeys.forEach((key) => {
@@ -324,8 +324,227 @@ export default function CampaignsNewRealPage() {
     return sampleValues[key] ?? key
   }
 
+  const resolveCountry = (phone: string): string | null => {
+    const normalized = normalizePhoneNumber(String(phone || '').trim())
+    if (!normalized) return null
+    try {
+      const parsed = parsePhoneNumber(normalized)
+      return parsed?.country || null
+    } catch {
+      return null
+    }
+  }
+
+  const buildTemplateVariables = () => {
+    if (!selectedTemplate) {
+      return {
+        header: templateVars.header.map((item) => item.value.trim()),
+        body: templateVars.body.map((item) => item.value.trim()),
+        buttons: {},
+      }
+    }
+
+    try {
+      const spec = buildTemplateSpecV1(selectedTemplate)
+      const buttons = Object.fromEntries(
+        Object.entries(templateButtonVars).map(([k, v]) => [k, String(v ?? '').trim()])
+      )
+
+      if (spec.parameterFormat === 'named') {
+        // Mantém compatibilidade com os endpoints atuais (Meta API-style): arrays posicionais.
+        // Para named, seguimos a ordem de requiredKeys do contrato.
+        const headerOut = (spec.header?.requiredKeys || []).map((k) => {
+          const item = templateVars.header.find((v) => v.key === k)
+          return String(item?.value || '').trim()
+        })
+        const bodyOut = spec.body.requiredKeys.map((k) => {
+          const item = templateVars.body.find((v) => v.key === k)
+          return String(item?.value || '').trim()
+        })
+
+        return {
+          header: headerOut,
+          body: bodyOut,
+          ...(Object.keys(buttons).length ? { buttons } : {}),
+        }
+      }
+
+      const headerArr: string[] = []
+      const bodyArr: string[] = []
+
+      for (const v of templateVars.header) {
+        const idx = Number(v.key)
+        if (Number.isFinite(idx) && idx >= 1) headerArr[idx - 1] = v.value.trim()
+      }
+
+      for (const v of templateVars.body) {
+        const idx = Number(v.key)
+        if (Number.isFinite(idx) && idx >= 1) bodyArr[idx - 1] = v.value.trim()
+      }
+
+      const maxHeader = Math.max(0, ...(spec.header?.requiredKeys || []).map((k) => Number(k)).filter(Number.isFinite))
+      const maxBody = Math.max(0, ...spec.body.requiredKeys.map((k) => Number(k)).filter(Number.isFinite))
+
+      const headerOut = Array.from({ length: maxHeader }, (_, i) => headerArr[i] ?? '')
+      const bodyOut = Array.from({ length: maxBody }, (_, i) => bodyArr[i] ?? '')
+
+      return {
+        header: headerOut,
+        body: bodyOut,
+        ...(Object.keys(buttons).length ? { buttons } : {}),
+      }
+    } catch {
+      return {
+        header: templateVars.header.map((item) => item.value.trim()),
+        body: templateVars.body.map((item) => item.value.trim()),
+        ...(Object.keys(templateButtonVars).length ? { buttons: templateButtonVars } : {}),
+      }
+    }
+  }
+
+  const resolveAudienceContacts = async (): Promise<Contact[]> => {
+    if (audienceMode === 'teste') {
+      const list: Contact[] = []
+      if (sendToConfigured && configuredContact) {
+        list.push(configuredContact)
+      }
+      if (sendToSelected && selectedTestContact) {
+        list.push(selectedTestContact)
+      }
+      return list
+    }
+
+    const contacts = await fetchJson<Contact[]>('/api/contacts')
+    if (audienceMode === 'todos') return contacts
+
+    if (!selectedTags.length && !selectedCountries.length && !selectedStates.length) {
+      return contacts
+    }
+
+    return contacts.filter((contact) => {
+      const contactTags = Array.isArray(contact.tags) ? contact.tags : []
+      const phone = String(contact.phone || '')
+      const country = selectedCountries.length ? resolveCountry(phone) : null
+      const uf = selectedStates.length ? getBrazilUfFromPhone(phone) : null
+
+      const tagMatches = selectedTags.map((tag) => contactTags.includes(tag))
+      const countryMatches = selectedCountries.map((code) => Boolean(country && country === code))
+      const stateMatches = selectedStates.map((code) => Boolean(uf && uf === code))
+      const filters = [...tagMatches, ...countryMatches, ...stateMatches]
+
+      if (!filters.length) return true
+      const isMatch = combineMode === 'or' ? filters.some(Boolean) : filters.every(Boolean)
+      return isMatch
+    })
+  }
+
   const selectedTestCount =
     Number(Boolean(sendToConfigured && hasConfiguredContact)) + Number(Boolean(sendToSelected && selectedTestContact))
+
+  const runPrecheck = async () => {
+    if (!templateSelected || !selectedTemplate?.name) return
+    if (audienceMode === 'teste' && selectedTestCount === 0) return
+
+    setIsPrecheckLoading(true)
+    setPrecheckError(null)
+    try {
+      const contacts = await resolveAudienceContacts()
+      if (!contacts.length) {
+        setPrecheckTotals({ valid: 0, skipped: 0 })
+        setPrecheckError('Nenhum contato encontrado para validar.')
+        return
+      }
+
+      const result = await campaignService.precheck({
+        templateName: selectedTemplate.name,
+        contacts: contacts.map((contact) => ({
+          contactId: contact.id,
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email || undefined,
+          custom_fields: contact.custom_fields || {},
+        })),
+        templateVariables: buildTemplateVariables(),
+      })
+
+      setPrecheckTotals({
+        valid: result?.totals?.valid ?? 0,
+        skipped: result?.totals?.skipped ?? 0,
+      })
+    } catch (error) {
+      setPrecheckError((error as Error)?.message || 'Falha ao validar destinatarios.')
+      setPrecheckTotals(null)
+    } finally {
+      setIsPrecheckLoading(false)
+    }
+  }
+
+  const handleLaunch = async () => {
+    if (!selectedTemplate?.name) return
+    setIsLaunching(true)
+    setLaunchError(null)
+    try {
+      const contacts = await resolveAudienceContacts()
+      if (!contacts.length) {
+        setLaunchError('Nenhum contato valido para envio.')
+        return
+      }
+
+      const scheduledAt =
+        scheduleMode === 'agendar' && scheduleDate && scheduleTime
+          ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString()
+          : undefined
+
+      const campaign = await campaignService.create({
+        name: campaignName.trim(),
+        templateName: selectedTemplate.name,
+        selectedContacts: contacts.map((contact) => ({
+          contactId: contact.id,
+          id: contact.id,
+          name: contact.name,
+          phone: contact.phone,
+          email: contact.email || null,
+          custom_fields: contact.custom_fields || {},
+        })),
+        recipients: contacts.length,
+        scheduledAt,
+        templateVariables: buildTemplateVariables(),
+      })
+
+      router.push(`/campaigns/${campaign.id}`)
+    } catch (error) {
+      setLaunchError((error as Error)?.message || 'Falha ao lancar campanha.')
+    } finally {
+      setIsLaunching(false)
+    }
+  }
+
+  useEffect(() => {
+    if (step !== 3) return
+    if (!templateSelected || !selectedTemplate?.name) return
+    if (audienceMode === 'teste' && selectedTestCount === 0) return
+    runPrecheck()
+  }, [
+    step,
+    templateSelected,
+    selectedTemplate?.name,
+    audienceMode,
+    selectedTestCount,
+    sendToConfigured,
+    sendToSelected,
+    selectedTestContact?.id,
+    configuredContact?.id,
+    combineMode,
+    selectedTags.join(','),
+    selectedCountries.join(','),
+    selectedStates.join(','),
+    templateVars.header.map((item) => item.value).join('|'),
+    templateVars.body.map((item) => item.value).join('|'),
+    Object.entries(templateButtonVars)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join('|'),
+  ])
 
   const baseCount = statsQuery.data?.total ?? 0
   const segmentEstimate = segmentCountQuery.data?.matched ?? baseCount
@@ -343,9 +562,180 @@ export default function CampaignsNewRealPage() {
       : isSegmentCountLoading
         ? 'Calculando estimativa...'
         : `${audienceCount} contatos • ${formatCurrency(audienceCost)}`
-  const missingTemplateVars = [...templateVars.header, ...templateVars.body].filter(
-    (item) => item.required && !item.value.trim()
-  ).length
+  const activeTemplate = previewTemplate ?? (templateSelected ? selectedTemplate : null)
+
+  const parameterFormat = (
+    ((activeTemplate as any)?.parameter_format || activeTemplate?.parameterFormat || 'positional') as
+      | 'positional'
+      | 'named'
+  )
+
+  const previewContact = useMemo(
+    () => ({
+      contactId: configuredContact?.id || selectedTestContact?.id || 'preview',
+      name: sampleValues.nome,
+      phone: sampleValues.telefone,
+      email: sampleValues.email,
+      custom_fields:
+        (sendToSelected && selectedTestContact ? selectedTestContact.custom_fields : configuredContact?.custom_fields) ||
+        {},
+    }),
+    [configuredContact?.custom_fields, configuredContact?.id, sampleValues, selectedTestContact?.custom_fields, selectedTestContact?.id, sendToSelected]
+  )
+
+  const templateSpec = useMemo(() => {
+    if (!activeTemplate) return null
+    try {
+      return buildTemplateSpecV1(activeTemplate)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao validar contrato do template'
+      return { error: message } as any
+    }
+  }, [activeTemplate])
+
+  const templateComponents = useMemo(() => {
+    return (activeTemplate?.components || []) as TemplateComponent[]
+  }, [activeTemplate])
+
+  const flattenedButtons = useMemo(() => {
+    const out: Array<{ index: number; button: TemplateButton }> = []
+    let idx = 0
+    for (const c of templateComponents) {
+      if (c.type !== 'BUTTONS') continue
+      const btns = (c.buttons || []) as TemplateButton[]
+      for (const b of btns) {
+        out.push({ index: idx, button: b })
+        idx += 1
+      }
+    }
+    return out
+  }, [templateComponents])
+
+  const resolvedHeader = useMemo(() => {
+    if (!templateSpec || (templateSpec as any).error) return null
+    const spec = templateSpec as ReturnType<typeof buildTemplateSpecV1>
+    if (!spec.header?.requiredKeys?.length) {
+      return spec.parameterFormat === 'named' ? ({} as Record<string, string>) : ([] as string[])
+    }
+
+    const getPreviewValue = (item: TemplateVar | undefined, key: string) => {
+      const fallback = item?.placeholder || `{{${key}}}`
+      const raw = item?.value?.trim() ? item.value : fallback
+      // Quando não há valor preenchido, manter o placeholder no preview (evita "**" em OTP: *{{1}}* -> **)
+      if (raw === fallback) return fallback
+      return resolveVarValue(raw, previewContact)
+    }
+
+    if (spec.parameterFormat === 'named') {
+      const out: Record<string, string> = {}
+      for (const k of spec.header.requiredKeys) {
+        const item = templateVars.header.find((v) => v.key === k)
+        out[k] = getPreviewValue(item, k)
+      }
+      return out
+    }
+
+    const arr: string[] = []
+    for (const k of spec.header.requiredKeys) {
+      const item = templateVars.header.find((v) => v.key === k)
+      const resolved = getPreviewValue(item, k)
+      const idx = Number(k)
+      if (Number.isFinite(idx) && idx >= 1) arr[idx - 1] = resolved
+    }
+    return arr.map((v) => v ?? '')
+  }, [previewContact, templateSpec, templateVars.header])
+
+  const resolvedBody = useMemo(() => {
+    if (!templateSpec || (templateSpec as any).error) return null
+    const spec = templateSpec as ReturnType<typeof buildTemplateSpecV1>
+
+    const getPreviewValue = (item: TemplateVar | undefined, key: string) => {
+      const fallback = item?.placeholder || `{{${key}}}`
+      const raw = item?.value?.trim() ? item.value : fallback
+      if (raw === fallback) return fallback
+      return resolveVarValue(raw, previewContact)
+    }
+
+    if (spec.parameterFormat === 'named') {
+      const out: Record<string, string> = {}
+      for (const k of spec.body.requiredKeys) {
+        const item = templateVars.body.find((v) => v.key === k)
+        out[k] = getPreviewValue(item, k)
+      }
+      return out
+    }
+
+    const arr: string[] = []
+    for (const k of spec.body.requiredKeys) {
+      const item = templateVars.body.find((v) => v.key === k)
+      const resolved = getPreviewValue(item, k)
+      const idx = Number(k)
+      if (Number.isFinite(idx) && idx >= 1) arr[idx - 1] = resolved
+    }
+    return arr.map((v) => v ?? '')
+  }, [previewContact, templateSpec, templateVars.body])
+
+  const buttonAudit = useMemo(() => {
+    if (!templateSpec || (templateSpec as any).error) return []
+    const spec = templateSpec as ReturnType<typeof buildTemplateSpecV1>
+
+    return spec.buttons.map((b) => {
+      const uiButton = flattenedButtons.find((x) => x.index === b.index)?.button
+      const base = {
+        index: b.index,
+        kind: b.kind,
+        text: uiButton?.text || `Botão ${b.index + 1}`,
+        type: uiButton?.type,
+        isDynamic: b.kind === 'url' ? b.isDynamic : false,
+        requiredKeys: b.kind === 'url' ? b.requiredKeys : [],
+        url: uiButton?.url,
+        phone: (uiButton as any)?.phone_number as string | undefined,
+      }
+
+      if (b.kind !== 'url' || !b.isDynamic || !base.url) return { ...base, resolvedUrl: base.url }
+
+      const k = b.requiredKeys[0]
+      const raw = templateButtonVars[`button_${b.index}_${k}`] || ''
+      const resolved = resolveVarValue(raw, previewContact)
+      const resolvedUrl = replaceTemplatePlaceholders({
+        text: base.url,
+        parameterFormat: 'positional',
+        positionalValues: [resolved],
+      })
+      return { ...base, resolvedUrl, resolvedParam: resolved, rawParam: raw }
+    })
+  }, [flattenedButtons, previewContact, templateButtonVars, templateSpec])
+
+  const missingTemplateVars = useMemo(() => {
+    if (!templateSpec || (templateSpec as any).error) {
+      return [...templateVars.header, ...templateVars.body].filter((item) => item.required && !item.value.trim()).length
+    }
+
+    const spec = templateSpec as ReturnType<typeof buildTemplateSpecV1>
+    let missing = 0
+
+    for (const k of spec.header?.requiredKeys || []) {
+      const item = templateVars.header.find((v) => v.key === k)
+      const resolved = resolveVarValue(item?.value || '', previewContact)
+      if (!resolved.trim()) missing += 1
+    }
+    for (const k of spec.body.requiredKeys) {
+      const item = templateVars.body.find((v) => v.key === k)
+      const resolved = resolveVarValue(item?.value || '', previewContact)
+      if (!resolved.trim()) missing += 1
+    }
+    for (const b of spec.buttons) {
+      if (b.kind !== 'url' || !b.isDynamic) continue
+      for (const k of b.requiredKeys) {
+        const raw = templateButtonVars[`button_${b.index}_${k}`] || ''
+        const resolved = resolveVarValue(raw, previewContact)
+        if (!resolved.trim()) missing += 1
+      }
+    }
+
+    return missing
+  }, [previewContact, templateButtonVars, templateSpec, templateVars.body, templateVars.header])
+
   const isConfigComplete = Boolean(campaignName.trim()) && templateSelected && missingTemplateVars === 0
   const isAudienceComplete = audienceMode === 'teste' ? selectedTestCount > 0 : audienceCount > 0
   const isReviewComplete =
@@ -357,32 +747,6 @@ export default function CampaignsNewRealPage() {
   const combinePreview = combineFilters.length
     ? combineFilters.join(' • ')
     : 'Nenhum filtro selecionado'
-  const activeTemplate = previewTemplate ?? (templateSelected ? selectedTemplate : null)
-  const resolveTemplateValue = (value: string) => {
-    if (!value) return ''
-    const match = value.match(/^\{\{(.+)\}\}$/)
-    if (!match) return value
-    const rawKey = match[1].trim()
-    const normalized = rawKey.startsWith('contact.') ? rawKey.slice(8) : rawKey
-    const mapped =
-      normalized === 'name'
-        ? 'nome'
-        : normalized === 'phone'
-          ? 'telefone'
-          : normalized === 'email'
-            ? 'email'
-            : normalized
-    return resolveValue(mapped)
-  }
-  const renderTemplatePreview = (text: string) => {
-    let output = text || ''
-    const vars = [...templateVars.header, ...templateVars.body]
-    vars.forEach((variable) => {
-      output = output.replaceAll(variable.id, resolveTemplateValue(variable.value))
-    })
-    return output.replaceAll('#{pedido}', '#12345')
-  }
-
   const countryData = countriesQuery.data?.data || []
   const stateData = statesQuery.data?.data || []
   const tagChips = (tagsQuery.data || []).slice(0, 6)
@@ -415,36 +779,29 @@ export default function CampaignsNewRealPage() {
 
   useEffect(() => {
     if (!selectedTemplate) return
-    const components = selectedTemplate.components || []
-    const headerText =
-      components.find((component) => component.type === 'HEADER')?.text || ''
-    const bodyText =
-      components.find((component) => component.type === 'BODY')?.text ||
-      selectedTemplate.content ||
-      selectedTemplate.preview ||
-      ''
+    setTemplateSpecError(null)
+    setTemplateButtonVars({})
 
-    const extractTokens = (text: string) => {
-      const matches = text.match(/\{\{[^}]+\}\}/g) || []
-      const unique: string[] = []
-      matches.forEach((token) => {
-        if (!unique.includes(token)) unique.push(token)
+    try {
+      const spec = buildTemplateSpecV1(selectedTemplate)
+      const mapKeys = (keys: string[]) =>
+        keys.map((key) => ({
+          key,
+          placeholder: `{{${key}}}`,
+          value: '',
+          required: true,
+        }))
+
+      setTemplateVars({
+        header: mapKeys(spec.header?.requiredKeys || []),
+        body: mapKeys(spec.body.requiredKeys || []),
       })
-      return unique
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao validar contrato do template'
+      setTemplateSpecError(message)
+      setTemplateVars({ header: [], body: [] })
     }
-
-    const mapTokens = (tokens: string[]) =>
-      tokens.map((token) => ({
-        id: token,
-        value: '',
-        required: true,
-      }))
-
-    setTemplateVars({
-      header: mapTokens(extractTokens(headerText)),
-      body: mapTokens(extractTokens(bodyText)),
-    })
-  }, [selectedTemplate?.name, selectedTemplate?.preview, selectedTemplate?.content, customFieldKeys.join(',')])
+  }, [selectedTemplate?.name])
 
   const setTemplateVarValue = (section: 'header' | 'body', index: number, value: string) => {
     setTemplateVars((prev) => {
@@ -452,6 +809,13 @@ export default function CampaignsNewRealPage() {
       next[section][index] = { ...next[section][index], value }
       return next
     })
+  }
+
+  const setButtonVarValue = (buttonIndex: number, key: string, value: string) => {
+    setTemplateButtonVars((prev) => ({
+      ...prev,
+      [`button_${buttonIndex}_${key}`]: value,
+    }))
   }
 
   return (
@@ -530,7 +894,7 @@ export default function CampaignsNewRealPage() {
                     onChange={(event) => setCampaignName(event.target.value)}
                     aria-label="Nome da campanha"
                   />
-                  <div className="relative w-full lg:w-[180px]">
+                  <div className="relative w-full lg:w-45">
                     <select
                       className="w-full appearance-none rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-1.5 pr-9 text-sm text-white"
                       aria-label="Objetivo da campanha"
@@ -717,6 +1081,12 @@ export default function CampaignsNewRealPage() {
                   </div>
 
                   <div className="mt-5 space-y-5">
+                    {templateSpecError && (
+                      <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+                        <div className="font-semibold">Template com contrato inválido</div>
+                        <div className="mt-1 text-xs text-amber-200/80">{templateSpecError}</div>
+                      </div>
+                    )}
                     {templateVars.header.length > 0 && (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-gray-500">
@@ -725,15 +1095,15 @@ export default function CampaignsNewRealPage() {
                         </div>
                       <div className="space-y-3">
                           {templateVars.header.map((item, index) => (
-                            <div key={item.id} className="flex items-center gap-3">
+                            <div key={item.key} className="flex items-center gap-3">
                               <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-200">
-                                {item.id}
+                                {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
                                 <input
                                   value={item.value}
                                   onChange={(event) => setTemplateVarValue('header', index, event.target.value)}
-                                  placeholder={`Variavel do cabecalho (${item.id})`}
+                                  placeholder={`Variavel do cabecalho (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-zinc-950/40 px-4 py-2 pr-10 text-sm text-white placeholder:text-gray-600 ${
                                     !item.value.trim() && item.required
                                       ? 'border-amber-400/40'
@@ -820,15 +1190,15 @@ export default function CampaignsNewRealPage() {
                         </div>
                         <div className="space-y-3">
                           {templateVars.body.map((item, index) => (
-                            <div key={`${item.id}-${index}`} className="flex items-center gap-3">
+                            <div key={`${item.key}-${index}`} className="flex items-center gap-3">
                               <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-200">
-                                {item.id}
+                                {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
                                 <input
                                   value={item.value}
                                   onChange={(event) => setTemplateVarValue('body', index, event.target.value)}
-                                  placeholder={`Variavel do corpo (${item.id})`}
+                                  placeholder={`Variavel do corpo (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-zinc-950/40 px-4 py-2 pr-10 text-sm text-white placeholder:text-gray-600 ${
                                     !item.value.trim() && item.required
                                       ? 'border-amber-400/40'
@@ -903,6 +1273,114 @@ export default function CampaignsNewRealPage() {
                               {item.required && <span className="text-xs text-amber-300">obrigatorio</span>}
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {buttonAudit.some((b: any) => b.kind === 'url' && b.isDynamic) && (
+                      <div className="space-y-3 border-t border-white/10 pt-4">
+                        <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-gray-500">
+                          <span className="text-[10px] font-mono text-emerald-200">URL</span>
+                          <span>Variaveis dos botoes</span>
+                        </div>
+
+                        <div className="space-y-3">
+                          {buttonAudit
+                            .filter((b: any) => b.kind === 'url' && b.isDynamic)
+                            .map((b: any) => (
+                              <div key={`btn-${b.index}`} className="rounded-xl border border-white/10 bg-zinc-950/30 p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm font-semibold text-white">{b.text}</div>
+                                  <div className="text-[10px] uppercase tracking-widest text-gray-500">botao {b.index + 1}</div>
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                  {(b.requiredKeys as string[]).map((k) => {
+                                    const id = `{{${k}}}`
+                                    const value = templateButtonVars[`button_${b.index}_${k}`] || ''
+                                    return (
+                                      <div key={`btn-${b.index}-${k}`} className="flex items-center gap-3">
+                                        <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-200">{id}</span>
+                                        <div className="relative flex flex-1 items-center">
+                                          <input
+                                            value={value}
+                                            onChange={(event) => setButtonVarValue(b.index, k, event.target.value)}
+                                            placeholder={`Variavel do botao (${id})`}
+                                            className={`w-full rounded-xl border bg-zinc-950/40 px-4 py-2 pr-10 text-sm text-white placeholder:text-gray-600 ${
+                                              !value.trim() ? 'border-amber-400/40' : 'border-white/10'
+                                            }`}
+                                          />
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <button
+                                                type="button"
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-amber-300"
+                                              >
+                                                <Braces size={14} />
+                                              </button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                              align="end"
+                                              className="min-w-52 border border-white/10 bg-zinc-900 text-white"
+                                            >
+                                              <DropdownMenuLabel className="text-xs uppercase tracking-widest text-gray-500">
+                                                Dados do contato
+                                              </DropdownMenuLabel>
+                                              <DropdownMenuItem
+                                                onSelect={() => setButtonVarValue(b.index, k, '{{nome}}')}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <Users size={14} className="text-indigo-400" />
+                                                <span>Nome</span>
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onSelect={() => setButtonVarValue(b.index, k, '{{telefone}}')}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <div className="text-green-400 font-mono text-[10px] w-3.5 text-center">Ph</div>
+                                                <span>Telefone</span>
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                onSelect={() => setButtonVarValue(b.index, k, '{{email}}')}
+                                                className="flex items-center gap-2"
+                                              >
+                                                <div className="text-blue-400 font-mono text-[10px] w-3.5 text-center">@</div>
+                                                <span>Email</span>
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator className="bg-white/10" />
+                                              {customFields.length > 0 && (
+                                                <>
+                                                  <DropdownMenuLabel className="text-xs uppercase tracking-widest text-gray-500">
+                                                    Campos personalizados
+                                                  </DropdownMenuLabel>
+                                                  {customFields.map((field) => (
+                                                    <DropdownMenuItem
+                                                      key={field.key}
+                                                      onSelect={() => setButtonVarValue(b.index, k, `{{${field.key}}}`)}
+                                                      className="flex items-center gap-2"
+                                                    >
+                                                      <div className="text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                                      <span>{field.label || field.key}</span>
+                                                    </DropdownMenuItem>
+                                                  ))}
+                                                  <DropdownMenuSeparator className="bg-white/10" />
+                                                </>
+                                              )}
+                                              <DropdownMenuItem
+                                                onSelect={() => setIsFieldsSheetOpen(true)}
+                                                className="text-xs text-amber-400"
+                                              >
+                                                <Plus size={12} /> Gerenciar campos
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
+                                        <span className="text-xs text-amber-300">obrigatorio</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            ))}
                         </div>
                       </div>
                     )}
@@ -1362,18 +1840,33 @@ export default function CampaignsNewRealPage() {
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div className="rounded-xl border border-white/10 bg-zinc-950/40 p-4 text-center">
-                    <p className="text-2xl font-semibold text-white">217</p>
+                    <p className="text-2xl font-semibold text-white">
+                      {isPrecheckLoading ? '—' : precheckTotals?.valid ?? '—'}
+                    </p>
                     <p className="text-xs text-gray-500">Validos</p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-zinc-950/40 p-4 text-center">
-                    <p className="text-2xl font-semibold text-amber-300">4</p>
+                    <p className="text-2xl font-semibold text-amber-300">
+                      {isPrecheckLoading ? '—' : precheckTotals?.skipped ?? '—'}
+                    </p>
                     <p className="text-xs text-gray-500">Ignorados</p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-zinc-950/40 p-4 text-center">
-                    <p className="text-2xl font-semibold text-emerald-300">OK</p>
+                    <p className="text-2xl font-semibold text-emerald-300">
+                      {precheckError
+                        ? 'Falhou'
+                        : isPrecheckLoading
+                          ? '...'
+                          : precheckTotals && precheckTotals.skipped > 0
+                            ? 'Atencao'
+                            : 'OK'}
+                    </p>
                     <p className="text-xs text-gray-500">Status</p>
                   </div>
                 </div>
+                {precheckError && (
+                  <p className="mt-3 text-xs text-amber-300">{precheckError}</p>
+                )}
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
@@ -1440,7 +1933,38 @@ export default function CampaignsNewRealPage() {
 
           <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <button className="text-sm text-gray-400 hover:text-white">Voltar</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLaunching) return
+                  // Passo 1 tem "sub-etapas": escolher template -> preencher variáveis
+                  if (step === 1) {
+                    if (templateSelected) {
+                      // Volta para a seleção de template
+                      setTemplateSelected(false)
+                      setPreviewTemplate(null)
+                      return
+                    }
+                    if (showAllTemplates) {
+                      // Se estiver na lista completa, volta para a lista de recentes
+                      setShowAllTemplates(false)
+                      return
+                    }
+
+                    // No primeiro passo (seleção), Voltar leva ao Dashboard
+                    router.push('/')
+                    return
+                  }
+
+                  // Demais passos: volta para o passo anterior
+                  setStep(step - 1)
+                }}
+                className={`text-sm transition ${
+                  isLaunching ? 'cursor-not-allowed text-gray-600' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Voltar
+              </button>
               <div className="text-center text-sm text-gray-400">
                 {step === 1 && !templateSelected && 'Selecione um template para continuar'}
                 {step === 1 && templateSelected && missingTemplateVars > 0 && (
@@ -1455,21 +1979,26 @@ export default function CampaignsNewRealPage() {
               </div>
               <button
                 onClick={() => {
-                  if (!canContinue) return
+                  if (!canContinue || isLaunching) return
                   if (step < 3) {
                     setStep(step + 1)
+                    return
                   }
+                  handleLaunch()
                 }}
                 className={`rounded-full px-5 py-2 text-sm font-semibold transition ${
-                  canContinue
+                  canContinue && !isLaunching
                     ? 'bg-white text-black'
                     : 'cursor-not-allowed border border-white/10 bg-white/10 text-gray-500'
                 }`}
-                disabled={!canContinue}
+                disabled={!canContinue || isLaunching}
               >
-                {step < 3 ? 'Continuar' : 'Lancar campanha'}
+                {step < 3 ? 'Continuar' : isLaunching ? 'Lancando...' : 'Lancar campanha'}
               </button>
             </div>
+            {launchError && (
+              <p className="mt-3 text-xs text-amber-300">{launchError}</p>
+            )}
           </div>
         </div>
 
@@ -1520,17 +2049,26 @@ export default function CampaignsNewRealPage() {
               <div className="text-xs uppercase tracking-widest text-gray-500">Preview</div>
               <button className="text-xs text-gray-400 hover:text-white">Expandir</button>
             </div>
-            <div className="mt-6 rounded-2xl bg-zinc-950/40 p-6 text-sm text-gray-300">
-              <p className="text-xs uppercase tracking-widest text-gray-500">Template</p>
+            <div className="mt-6 text-sm text-gray-300">
               {activeTemplate ? (
                 <>
-                  <p className="mt-2 text-base font-semibold text-white">{activeTemplate.name}</p>
-                  <p className="mt-3">{renderTemplatePreview(activeTemplate.preview ?? '')}</p>
+                  <div>
+                    <TemplatePreviewCard
+                      templateName={activeTemplate.name}
+                      components={templateComponents}
+                      parameterFormat={parameterFormat}
+                      variables={Array.isArray(resolvedBody) ? resolvedBody : undefined}
+                      headerVariables={Array.isArray(resolvedHeader) ? resolvedHeader : undefined}
+                      namedVariables={!Array.isArray(resolvedBody) && resolvedBody ? (resolvedBody as Record<string, string>) : undefined}
+                      namedHeaderVariables={!Array.isArray(resolvedHeader) && resolvedHeader ? (resolvedHeader as Record<string, string>) : undefined}
+                      fallbackContent={activeTemplate.content || activeTemplate.preview}
+                    />
+                  </div>
                 </>
               ) : (
                 <>
-                  <p className="mt-2 text-base font-semibold text-white">Selecione um template</p>
-                  <p className="mt-3 text-sm text-gray-500">O preview aparece aqui quando voce escolher.</p>
+                  <p className="text-base font-semibold text-white">Selecione um template</p>
+                  <p className="mt-3 text-sm text-gray-500">O preview aparece aqui quando você escolher.</p>
                 </>
               )}
             </div>

@@ -12,12 +12,13 @@ import { cn } from '@/lib/utils';
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page';
 import { Button } from '@/components/ui/button';
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SendFlowDialog } from '@/components/features/flows/SendFlowDialog'
 import { FlowSubmissionsView } from '@/components/features/flows/FlowSubmissionsView'
+import { FlowPublishPanel } from '@/components/features/flows/FlowPublishPanel'
+import { FlowTestPanel } from '@/components/features/flows/FlowTestPanel'
 import { useFlowSubmissionsController } from '@/hooks/useFlowSubmissions'
 import { flowsService } from '@/services/flowsService'
 import { useQuery } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 // Status Badge Component
 const StatusBadge = ({ status, approvedCount, totalCount }: { status: string; approvedCount?: number; totalCount?: number }) => {
@@ -70,9 +71,11 @@ export default function TemplatesPage() {
   const controller = useTemplatesController();
   const draftsController = useManualDraftsController();
   const { data: projects, isLoading: isLoadingProjects, refetch } = useTemplateProjectsQuery();
-  const { deleteProject, isDeleting } = useTemplateProjectMutations();
+  const { deleteProject } = useTemplateProjectMutations();
   const [searchTerm, setSearchTerm] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'projects' | 'meta' | 'drafts' | 'flows'>('meta');
+  const [selectedTestFlowId, setSelectedTestFlowId] = React.useState('');
+  const [isCreatingFlow, setIsCreatingFlow] = React.useState(false);
 
   // Flows hub state
   const flowSubmissionsController = useFlowSubmissionsController()
@@ -83,6 +86,29 @@ export default function TemplatesPage() {
     enabled: activeTab === 'flows',
   })
   const builderFlows = flowsQuery.data || []
+  const flowsWithMetaId = builderFlows.filter((f) => !!f.meta_flow_id)
+  const flowStage = builderFlows.length === 0 ? 'create' : flowsWithMetaId.length === 0 ? 'publish' : 'test'
+
+  const scrollToId = React.useCallback((id: string) => {
+    if (typeof document === 'undefined') return
+    const el = document.getElementById(id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
+  const handleQuickCreateFlow = async () => {
+    const now = new Date()
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+    const name = `flow_${stamp}`
+    try {
+      setIsCreatingFlow(true)
+      const created = await flowsService.create({ name })
+      router.push(`/flows/builder/${encodeURIComponent(created.id)}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao criar flow')
+    } finally {
+      setIsCreatingFlow(false)
+    }
+  }
 
   // Deep-link: /templates?tab=flows
   React.useEffect(() => {
@@ -167,18 +193,14 @@ export default function TemplatesPage() {
 
           {activeTab === 'flows' && (
             <div className="flex items-center gap-2">
-              <SendFlowDialog
-                flows={builderFlows}
-                isLoadingFlows={flowsQuery.isFetching}
-                onRefreshFlows={() => flowsQuery.refetch()}
-              />
-              <Button
-                variant="outline"
-                onClick={() => router.push('/flows/builder')}
-                className="border-white/10 bg-zinc-900 hover:bg-white/5"
-              >
-                Abrir Flow Builder
-              </Button>
+              {flowStage === 'test' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => scrollToId('flow-test-panel')}
+                >
+                  Testar envio
+                </Button>
+              )}
             </div>
           )}
         </PageActions>
@@ -258,86 +280,71 @@ export default function TemplatesPage() {
       )}
 
       {activeTab === 'flows' && (
-        <div className="space-y-4">
-          <Tabs defaultValue="submissions" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="submissions">Submissões</TabsTrigger>
-              <TabsTrigger value="drafts">Rascunhos</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="submissions" className="space-y-4">
-              <FlowSubmissionsView
-                submissions={flowSubmissionsController.submissions}
-                isLoading={flowSubmissionsController.isLoading}
-                isFetching={flowSubmissionsController.isFetching}
-                phoneFilter={flowSubmissionsController.phoneFilter}
-                onPhoneFilterChange={flowSubmissionsController.setPhoneFilter}
-                flowIdFilter={flowSubmissionsController.flowIdFilter}
-                onFlowIdFilterChange={flowSubmissionsController.setFlowIdFilter}
-                onRefresh={() => flowSubmissionsController.refetch()}
-                builderFlows={builderFlows}
-              />
-            </TabsContent>
-
-            <TabsContent value="drafts" className="space-y-4">
-              <div className="glass-panel p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-white font-semibold">Seus rascunhos de Flow</div>
-                    <div className="text-sm text-gray-400">Dica: preencha o Meta Flow ID para cruzar com as submissões.</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => flowsQuery.refetch()}
-                      disabled={flowsQuery.isLoading || flowsQuery.isFetching}
-                    >
-                      {flowsQuery.isFetching ? 'Atualizando…' : 'Atualizar lista'}
-                    </Button>
-                    <Button type="button" variant="secondary" onClick={() => router.push('/flows/builder')}>
-                      Ir para o Builder
-                    </Button>
+        <div className="space-y-6">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] items-start">
+            <div className="space-y-4">
+              <div className="glass-panel p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-gray-400">Etapas</div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                    <span className={flowStage === 'create' ? 'text-white font-semibold' : ''}>1. Criar</span>
+                    <span className="opacity-40">→</span>
+                    <span className={flowStage === 'publish' ? 'text-white font-semibold' : ''}>2. Gerar Flow ID</span>
+                    <span className="opacity-40">→</span>
+                    <span className={flowStage === 'test' ? 'text-white font-semibold' : ''}>3. Testar no WhatsApp</span>
                   </div>
                 </div>
-
-                <div className="mt-3 text-xs text-gray-500">
-                  {flowsQuery.isLoading ? 'Carregando…' : `Mostrando ${builderFlows.length} flow(s)`}
-                  {flowsQuery.isFetching && !flowsQuery.isLoading ? ' (atualizando…)': ''}
+                <div className="flex items-center gap-2">
+                  <Button onClick={handleQuickCreateFlow} disabled={isCreatingFlow}>
+                    {isCreatingFlow ? 'Criando…' : 'Criar flow'}
+                  </Button>
                 </div>
               </div>
+              {flowStage === 'publish' && (
+                <div id="flow-publish-panel">
+                  <FlowPublishPanel
+                    flows={builderFlows}
+                    isLoading={flowsQuery.isLoading}
+                    isFetching={flowsQuery.isFetching}
+                    onRefresh={() => flowsQuery.refetch()}
+                    onSelectTestFlowId={(metaFlowId) => {
+                      setSelectedTestFlowId(metaFlowId)
+                      scrollToId('flow-test-panel')
+                    }}
+                  />
+                </div>
+              )}
 
-              <div className="glass-panel p-0 overflow-hidden">
-                {builderFlows.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-gray-500">Nenhum flow ainda. Crie um no Builder para começar.</div>
-                ) : (
-                  <div className="divide-y divide-white/5">
-                    {builderFlows.slice(0, 12).map((f) => (
-                      <div key={f.id} className="flex flex-col gap-2 px-4 py-3 hover:bg-white/5 md:flex-row md:items-center md:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="text-gray-200 font-medium truncate">{f.name}</div>
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border bg-white/5 text-gray-200 border-white/10">
-                              {f.status}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-500 font-mono truncate">Meta Flow ID: {f.meta_flow_id || '—'}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button type="button" variant="secondary" onClick={() => router.push(`/flows/builder/${encodeURIComponent(f.id)}`)}>
-                            Abrir
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {builderFlows.length > 12 && (
-                      <div className="px-4 py-3 text-xs text-gray-500">Mostrando 12 de {builderFlows.length}. Abra o Builder para ver todos.</div>
-                    )}
-                  </div>
-                )}
+              {flowStage === 'test' && (
+                <FlowTestPanel
+                  flows={builderFlows}
+                  isLoadingFlows={flowsQuery.isFetching}
+                  onRefreshFlows={() => flowsQuery.refetch()}
+                  prefillFlowId={selectedTestFlowId}
+                />
+              )}
+            </div>
+
+            {flowStage === 'test' && (
+              <div className="space-y-4">
+                <FlowSubmissionsView
+                  submissions={flowSubmissionsController.submissions}
+                  isLoading={flowSubmissionsController.isLoading}
+                  isFetching={flowSubmissionsController.isFetching}
+                  phoneFilter={flowSubmissionsController.phoneFilter}
+                  onPhoneFilterChange={flowSubmissionsController.setPhoneFilter}
+                  flowIdFilter={flowSubmissionsController.flowIdFilter}
+                  onFlowIdFilterChange={flowSubmissionsController.setFlowIdFilter}
+                  onRefresh={() => flowSubmissionsController.refetch()}
+                  builderFlows={builderFlows}
+                  title="Últimos testes"
+                  subtitle="Veja as submissões mais recentes. Expanda para detalhes."
+                  showFilters={false}
+                  limit={5}
+                />
               </div>
-            </TabsContent>
-          </Tabs>
+            )}
+          </div>
         </div>
       )}
 

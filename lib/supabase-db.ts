@@ -23,6 +23,7 @@ import {
     CreateTemplateProjectDTO,
     CustomFieldDefinition,
 } from '../types'
+import { isSuppressionActive } from '@/lib/phone-suppressions'
 
 // Gera um ID compatível com ambientes que usam UUID (preferencial) e também funciona como TEXT.
 // - Em Supabase, muitos schemas antigos usam `uuid` como PK.
@@ -431,12 +432,45 @@ export const contactDb = {
             query = query.or(`name.ilike.${like},phone.ilike.${like}`)
         }
 
-        if (status && status !== 'ALL') {
+        if (status && status !== 'ALL' && status !== 'SUPPRESSED') {
             query = query.eq('status', status)
         }
 
         if (tag && tag !== 'ALL') {
             query = query.contains('tags', [tag])
+        }
+
+        let suppressionMap = new Map<string, { reason: string | null; source: string | null; expiresAt: string | null }>()
+        if (status === 'SUPPRESSED') {
+            const { data: suppressionRows, error: suppressionError } = await supabase
+                .from('phone_suppressions')
+                .select('phone,is_active,expires_at,reason,source')
+
+            if (suppressionError) throw suppressionError
+
+            const suppressedPhones = (suppressionRows || [])
+                .filter((row: any) => {
+                    const active = isSuppressionActive({ is_active: row.is_active, expires_at: row.expires_at })
+                    if (active) {
+                        const phone = String(row.phone || '').trim()
+                        if (phone) {
+                            suppressionMap.set(phone, {
+                                reason: row.reason ?? null,
+                                source: row.source ?? null,
+                                expiresAt: row.expires_at ?? null,
+                            })
+                        }
+                    }
+                    return active
+                })
+                .map((row: any) => String(row.phone || '').trim())
+                .filter(Boolean)
+
+            if (!suppressedPhones.length) {
+                return { data: [], total: 0 }
+            }
+
+            query = query.in('phone', suppressedPhones)
         }
 
         const { data, error, count } = await query
@@ -446,7 +480,9 @@ export const contactDb = {
         if (error) throw error
 
         return {
-            data: (data || []).map(row => ({
+            data: (data || []).map(row => {
+                const suppression = suppressionMap.get(String(row.phone || '').trim()) || null
+                return ({
                 id: row.id,
                 name: row.name,
                 phone: row.phone,
@@ -459,7 +495,11 @@ export const contactDb = {
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
                 custom_fields: row.custom_fields,
-            })),
+                suppressionReason: suppression?.reason ?? null,
+                suppressionSource: suppression?.source ?? null,
+                suppressionExpiresAt: suppression?.expiresAt ?? null,
+            })
+            }),
             total: count || 0,
         }
     },
@@ -482,12 +522,31 @@ export const contactDb = {
             query = query.or(`name.ilike.${like},phone.ilike.${like}`)
         }
 
-        if (status && status !== 'ALL') {
+        if (status && status !== 'ALL' && status !== 'SUPPRESSED') {
             query = query.eq('status', status)
         }
 
         if (tag && tag !== 'ALL') {
             query = query.contains('tags', [tag])
+        }
+
+        if (status === 'SUPPRESSED') {
+            const { data: suppressionRows, error: suppressionError } = await supabase
+                .from('phone_suppressions')
+                .select('phone,is_active,expires_at')
+
+            if (suppressionError) throw suppressionError
+
+            const suppressedPhones = (suppressionRows || [])
+                .filter((row: any) => isSuppressionActive({ is_active: row.is_active, expires_at: row.expires_at }))
+                .map((row: any) => String(row.phone || '').trim())
+                .filter(Boolean)
+
+            if (!suppressedPhones.length) {
+                return []
+            }
+
+            query = query.in('phone', suppressedPhones)
         }
 
         const { data, error } = await query

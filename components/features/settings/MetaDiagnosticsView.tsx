@@ -685,6 +685,46 @@ function TokenScopesCard({ data, checks }: { data?: MetaDiagnosticsResponse; che
   )
 }
 
+function topLineForSend(checks: MetaDiagnosticsCheck[]) {
+  const health = checks.find((c) => c.id === 'meta_health_status')
+  const overall = String((health?.details as any)?.overall || '')
+  if (overall === 'AVAILABLE') return { label: 'Pode enviar agora', status: 'pass' as const, detail: 'A Meta confirma envio liberado.' }
+  if (overall === 'LIMITED') return { label: 'Envio limitado', status: 'warn' as const, detail: 'A Meta limitou o envio; pode afetar volume.' }
+  if (overall === 'BLOCKED') return { label: 'Não pode enviar', status: 'fail' as const, detail: 'A Meta confirmou bloqueio.' }
+  if (health?.status === 'fail') return { label: 'Não pode enviar', status: 'fail' as const, detail: 'Falha ao consultar Health Status.' }
+  return { label: 'Envio não confirmado', status: 'info' as const, detail: 'Health Status indisponível.' }
+}
+
+function topLineForToken(checks: MetaDiagnosticsCheck[], data?: MetaDiagnosticsResponse) {
+  const dbgEnabled = Boolean(data?.debugTokenValidation?.enabled)
+  const dbgCheck = checks.find((c) => c.id === 'meta_debug_token')
+  const meCheck = checks.find((c) => c.id === 'meta_me')
+  if (dbgEnabled && dbgCheck?.status === 'pass') {
+    return { label: 'Token válido', status: 'pass' as const, detail: 'Validado via /debug_token.' }
+  }
+  if (dbgEnabled && dbgCheck?.status === 'fail') {
+    return { label: 'Token inválido', status: 'fail' as const, detail: 'A Meta marcou como inválido.' }
+  }
+  if (dbgEnabled && dbgCheck?.status === 'warn') {
+    return { label: 'Token não confirmado', status: 'warn' as const, detail: 'Validação falhou (best-effort).' }
+  }
+  if (meCheck?.status === 'pass') {
+    return { label: 'Token autentica', status: 'info' as const, detail: 'Autenticou via /me, mas sem prova forte.' }
+  }
+  if (meCheck?.status === 'fail') {
+    return { label: 'Token falhou', status: 'fail' as const, detail: 'Falha ao autenticar via /me.' }
+  }
+  return { label: 'Token sem status', status: 'info' as const, detail: 'Ainda sem confirmação.' }
+}
+
+function topLineForWebhook(checks: MetaDiagnosticsCheck[]) {
+  const sub = checks.find((c) => c.id === 'meta_subscription_messages')
+  if (sub?.status === 'pass') return { label: 'Webhook ok', status: 'pass' as const, detail: 'Você deve receber delivered/read.' }
+  if (sub?.status === 'fail') return { label: 'Webhook falho', status: 'fail' as const, detail: 'Você não vai receber delivered/read.' }
+  if (sub?.status === 'warn') return { label: 'Webhook incerto', status: 'warn' as const, detail: 'Não deu para confirmar inscrição.' }
+  return { label: 'Webhook sem status', status: 'info' as const, detail: 'Ainda sem confirmação.' }
+}
+
 type Simulate10033Response =
   | { ok: true; simulated: true; attempt?: { objectId?: string; status?: number }; result?: { graphOk?: boolean; normalizedError?: { message?: string; code?: number | null; subcode?: number | null; fbtraceId?: string | null; type?: string | null } } }
   | { ok: false; error: string; details?: any }
@@ -977,6 +1017,9 @@ export function MetaDiagnosticsView(props: {
   const lock = React.useMemo(() => hasMetaBusinessLockedEvidence(props.checks), [props.checks])
   const apiActionsDisabled = props.isActing || lock.kind === 'current'
   const lockedNow = lock.kind === 'current'
+  const topSend = React.useMemo(() => topLineForSend(props.checks), [props.checks])
+  const topToken = React.useMemo(() => topLineForToken(props.checks, props.data), [props.checks, props.data])
+  const topWebhook = React.useMemo(() => topLineForWebhook(props.checks), [props.checks])
 
   const hasGraph100_33 = React.useMemo(() => {
     const checks = props.checks || []
@@ -1067,38 +1110,68 @@ export function MetaDiagnosticsView(props: {
         </PageActions>
       </PageHeader>
 
-      {/* Selos / atalhos para reduzir suporte */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-        <HealthStatusSeal checks={props.checks} />
-        <TokenExpirySeal data={props.data} checks={props.checks} />
-        <DebugTokenSeal data={props.data} />
-
-        <div className="glass-panel rounded-2xl p-6">
-          <div className="text-xs text-gray-500">Atalho</div>
-          <div className="mt-2 text-sm text-white font-medium">Support Packet</div>
-          <div className="mt-2 text-sm text-gray-300">
-            1 clique pra copiar um pacote pronto (inclui <span className="font-mono">fbtrace_id</span> quando existir).
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => copyToClipboard(supportPacketText)}
-              disabled={!supportPacketText}
-              className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
-              title={supportPacketText ? 'Copiar packet completo' : 'Indisponível'}
-            >
-              <LifeBuoy size={14} /> {isCopied ? 'Copiado!' : 'Copiar packet'}
-            </button>
-            <button
-              onClick={() => copyToClipboard(reportText)}
-              disabled={!reportText}
-              className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
-              title={reportText ? 'Copiar resumo' : 'Indisponível'}
-            >
-              <Copy size={14} /> Resumo
-            </button>
-          </div>
+      <div className="glass-panel rounded-2xl p-6 mb-6 border border-white/10">
+        <div className="text-xs text-gray-500">Resposta direta</div>
+        <div className="mt-2 text-sm text-white font-medium">O que importa primeiro</div>
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {([
+            { category: 'Envio', label: topSend.label, status: topSend.status, detail: topSend.detail },
+            { category: 'Token', label: topToken.label, status: topToken.status, detail: topToken.detail },
+            { category: 'Webhook', label: topWebhook.label, status: topWebhook.status, detail: topWebhook.detail },
+          ] as const).map((row) => (
+            <div key={row.category} className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-gray-500">{row.category}</div>
+                <StatusBadge status={row.status} />
+              </div>
+              <div className="mt-2 text-sm text-white font-semibold">{row.label}</div>
+              <div className="mt-1 text-sm text-gray-300">{row.detail}</div>
+            </div>
+          ))}
         </div>
       </div>
+
+      {/* Selos / atalhos para reduzir suporte */}
+      <details className="glass-panel rounded-2xl p-6 mb-6">
+        <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs text-gray-500">Mais detalhes</div>
+            <div className="mt-1 text-sm text-white">Selos, suporte e validações</div>
+          </div>
+          <ChevronDown size={16} className="text-gray-400" />
+        </summary>
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <HealthStatusSeal checks={props.checks} />
+          <TokenExpirySeal data={props.data} checks={props.checks} />
+          <DebugTokenSeal data={props.data} />
+
+          <div className="glass-panel rounded-2xl p-6">
+            <div className="text-xs text-gray-500">Atalho</div>
+            <div className="mt-2 text-sm text-white font-medium">Support Packet</div>
+            <div className="mt-2 text-sm text-gray-300">
+              1 clique pra copiar um pacote pronto (inclui <span className="font-mono">fbtrace_id</span> quando existir).
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => copyToClipboard(supportPacketText)}
+                disabled={!supportPacketText}
+                className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
+                title={supportPacketText ? 'Copiar packet completo' : 'Indisponível'}
+              >
+                <LifeBuoy size={14} /> {isCopied ? 'Copiado!' : 'Copiar packet'}
+              </button>
+              <button
+                onClick={() => copyToClipboard(reportText)}
+                disabled={!reportText}
+                className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium inline-flex items-center gap-2 disabled:opacity-50"
+                title={reportText ? 'Copiar resumo' : 'Indisponível'}
+              >
+                <Copy size={14} /> Resumo
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <div className="mb-6">
         <QuickStartCard

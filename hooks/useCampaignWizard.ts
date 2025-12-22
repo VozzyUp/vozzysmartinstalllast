@@ -460,12 +460,19 @@ export const useCampaignWizardController = () => {
     const now = Date.now();
     const withinMs = criteria.createdWithinDays ? criteria.createdWithinDays * 24 * 60 * 60 * 1000 : null;
 
+    const mapCriteriaStatusToContactStatus = (status: AudienceCriteria['status']): ContactStatus | null => {
+      if (status === 'OPT_IN') return ContactStatus.OPT_IN;
+      if (status === 'OPT_OUT') return ContactStatus.OPT_OUT;
+      if (status === 'UNKNOWN') return ContactStatus.UNKNOWN;
+      return null; // ALL
+    };
+
     const out: string[] = [];
     for (const c of allContacts) {
       // Guard-rails de negócio (alinha com backend):
       // - opt-out: nunca enviar
       // - suprimidos: nunca enviar
-      if (c.status === 'OPT_OUT') continue;
+      if (c.status === ContactStatus.OPT_OUT) continue;
       const normalizedPhone = normalizePhoneNumber(String((c as any)?.phone || '').trim());
       if (normalizedPhone && suppressedPhones.has(normalizedPhone)) continue;
 
@@ -489,7 +496,8 @@ export const useCampaignWizardController = () => {
 
       // status
       if (criteria.status !== 'ALL') {
-        if (c.status !== criteria.status) continue;
+        const desired = mapCriteriaStatusToContactStatus(criteria.status);
+        if (desired && c.status !== desired) continue;
       }
 
       // no tags

@@ -2,16 +2,9 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, RefreshCw, Plus, Trash2, Send, Pencil, ChevronDown } from 'lucide-react'
+import { FileText, RefreshCw, Plus, Trash2, Send, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import type { ManualDraftTemplate } from '@/hooks/useManualDrafts'
 
@@ -74,11 +67,7 @@ export function ManualDraftsView({
   normalizeName: (input: string) => string
 }) {
   const router = useRouter()
-  const [newName, setNewName] = React.useState('')
-  const [newCategory, setNewCategory] = React.useState<'MARKETING' | 'UTILITY' | 'AUTHENTICATION'>('MARKETING')
-  const [newLanguage, setNewLanguage] = React.useState<'pt_BR' | 'en_US' | 'es_ES'>('pt_BR')
-  const [newParameterFormat, setNewParameterFormat] = React.useState<'positional' | 'named'>('positional')
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
+  const [isQuickCreating, setIsQuickCreating] = React.useState(false)
 
   const canSubmit = (draft: ManualDraftTemplate): boolean => {
     const spec = (draft.spec || {}) as any
@@ -86,32 +75,27 @@ export function ManualDraftsView({
     return bodyText.trim().length > 0
   }
 
-  const handleCreate = async () => {
-    const normalized = normalizeName(newName)
-    if (!normalized) return
+  const handleQuickCreate = async () => {
+    const now = new Date()
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+    const name = `template_${stamp}`
     try {
-      const created = await onCreate({
-        name: newName,
-        category: newCategory,
-        language: newLanguage,
-        parameterFormat: newParameterFormat,
-      })
+      setIsQuickCreating(true)
+      const created = await onCreate({ name, category: 'MARKETING', language: 'pt_BR', parameterFormat: 'positional' })
       if (created?.id) {
-        setNewName('')
         router.push(`/templates/drafts/${encodeURIComponent(created.id)}`)
         return
       }
-      setNewName('')
     } catch {
       // Toast handled by caller.
+    } finally {
+      setIsQuickCreating(false)
     }
   }
 
-  const normalizedName = normalizeName(newName)
   const readyDrafts = drafts.filter((d) => canSubmit(d))
   const editingDrafts = drafts.filter((d) => !canSubmit(d))
-  const showContinue = !search.trim() && !isLoading && drafts.length > 0
-  const recentDrafts = showContinue ? drafts.slice(0, 3) : []
+  const draftStage = drafts.length === 0 ? 'create' : readyDrafts.length > 0 ? 'send' : 'edit'
 
   return (
     <div className="space-y-6">
@@ -122,176 +106,59 @@ export function ManualDraftsView({
           </div>
           <div>
             <h2 className="text-lg font-semibold text-white">Templates em rascunho</h2>
-            <p className="text-sm text-gray-400">Comece pelo nome e vá direto para o editor.</p>
+            <p className="text-sm text-gray-400">Crie, edite e envie para a Meta.</p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="border-white/10 bg-zinc-900 hover:bg-white/5"
-          >
-            <RefreshCw className={cn('w-4 h-4', isRefreshing ? 'animate-spin' : '')} />
-            Atualizar
-          </Button>
         </div>
       </div>
 
-      <div className="glass-panel p-5 rounded-xl space-y-4">
-        <div>
-          <div className="text-base font-semibold text-white">Comece por aqui</div>
-          <div className="text-xs text-gray-400 mt-1">1. Nomeie • 2. Escreva • 3. Envie</div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-gray-300">Nome do template</label>
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="meu_template_01"
-              className="bg-zinc-900 border-white/10 text-white"
-            />
-            <p className="text-xs text-gray-500">
-              Normalizado: <span className="font-mono">{normalizedName || '-'}</span>
-            </p>
-          </div>
-
-          <Button
-            onClick={handleCreate}
-            disabled={!normalizedName || isCreating}
-            className="h-10"
-          >
-            <Plus className="w-4 h-4" />
-            {isCreating ? 'Criando...' : 'Criar e abrir editor'}
-          </Button>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((prev) => !prev)}
-          className="text-xs text-gray-400 hover:text-gray-200 inline-flex items-center gap-1"
-          aria-expanded={showAdvanced}
-        >
-          Configurações avançadas
-          <ChevronDown className={cn('w-4 h-4 transition-transform', showAdvanced ? 'rotate-180' : '')} />
-        </button>
-
-        {showAdvanced && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Categoria</label>
-              <Select value={newCategory} onValueChange={(v) => setNewCategory(v as any)}>
-                <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="MARKETING">Marketing</SelectItem>
-                  <SelectItem value="UTILITY">Utilidade</SelectItem>
-                  <SelectItem value="AUTHENTICATION">Autenticação</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Idioma</label>
-              <Select value={newLanguage} onValueChange={(v) => setNewLanguage(v as any)}>
-                <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pt_BR">Português (Brasil) — pt_BR</SelectItem>
-                  <SelectItem value="en_US">English (US) — en_US</SelectItem>
-                  <SelectItem value="es_ES">Español — es_ES</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-300">Formato de variáveis</label>
-              <Select value={newParameterFormat} onValueChange={(v) => setNewParameterFormat(v as any)}>
-                <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="positional">Positional ({'{{1}}'}, {'{{2}}'})</SelectItem>
-                  <SelectItem value="named">Named ({'{{first_name}}'})</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-gray-500">
-                Dica: URL dinâmica em botões funciona melhor com <span className="font-mono">positional</span>.
-              </p>
+      <div className="space-y-6 max-w-[min(900px,100%)]">
+        <div className="glass-panel p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-gray-400">Etapas</div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+              <span className={draftStage === 'create' ? 'text-white font-semibold' : ''}>1. Criar</span>
+              <span className="opacity-40">→</span>
+              <span className={draftStage === 'edit' ? 'text-white font-semibold' : ''}>2. Editar</span>
+              <span className="opacity-40">→</span>
+              <span className={draftStage === 'send' ? 'text-white font-semibold' : ''}>3. Enviar</span>
             </div>
           </div>
-        )}
-      </div>
-
-      {showContinue && (
-        <div className="glass-panel p-5 rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-semibold text-white">Continue criando</div>
-              <div className="text-xs text-gray-500">Acesse os últimos rascunhos para terminar rápido.</div>
-            </div>
-            <div className="text-xs text-gray-400">{drafts.length} rascunho(s)</div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            {recentDrafts.map((draft) => {
-              const snippet = extractDraftBody(draft).trim()
-              const ready = canSubmit(draft)
-              return (
-                <div
-                  key={draft.id}
-                  className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 flex flex-col gap-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-white truncate">{draft.name}</div>
-                    <DraftStatusBadge ready={ready} />
-                  </div>
-                  <p className="text-xs text-gray-400 line-clamp-3 whitespace-pre-wrap">
-                    {snippet || 'Escreva o corpo do template para ver um preview aqui.'}
-                  </p>
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Atualizado {new Date(draft.updatedAt).toLocaleDateString('pt-BR')}</span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => router.push(`/templates/drafts/${encodeURIComponent(draft.id)}`)}
-                      disabled={isUpdating}
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Continuar
-                    </Button>
-                  </div>
-                </div>
-              )
-            })}
+          <div className="flex items-center gap-2">
+            <Button onClick={handleQuickCreate} disabled={isQuickCreating || isCreating}>
+              <Plus className="w-4 h-4" />
+              {isQuickCreating ? 'Criando…' : 'Criar rascunho'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="border-white/10 bg-zinc-900 hover:bg-white/5"
+            >
+              <RefreshCw className={cn('w-4 h-4', isRefreshing ? 'animate-spin' : '')} />
+              Atualizar
+            </Button>
           </div>
         </div>
-      )}
 
-      <div className="glass-panel p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar rascunhos..."
-          className="bg-zinc-900 border-white/5 text-white placeholder-gray-600 w-full sm:w-96"
-        />
-        <div className="text-xs text-gray-400">
-          {drafts.length} rascunho(s) • {readyDrafts.length} pronto(s) para envio
+        <div className="glass-panel p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar rascunhos..."
+            className="bg-zinc-900 border-white/5 text-white placeholder-gray-600 w-full sm:w-96"
+          />
+          <div className="text-xs text-gray-400">
+            {drafts.length} rascunho(s) • {readyDrafts.length} pronto(s) para envio
+          </div>
         </div>
-      </div>
 
-      <div className="glass-panel rounded-xl overflow-hidden">
+        <div className="glass-panel rounded-xl overflow-hidden">
         {isLoading ? (
           <div className="px-6 py-10 text-center text-gray-400">Carregando...</div>
         ) : drafts.length === 0 ? (
           <div className="px-6 py-10 text-center text-gray-500">
             <div className="text-sm font-semibold text-gray-300">Nenhum rascunho ainda.</div>
-            <div className="text-xs text-gray-500 mt-1">Crie seu primeiro template acima.</div>
+            <div className="text-xs text-gray-500 mt-1">Clique em “Criar rascunho” para começar.</div>
           </div>
         ) : (
           <div className="divide-y divide-white/5">
@@ -301,7 +168,7 @@ export function ManualDraftsView({
             {editingDrafts.length === 0 ? (
               <div className="px-4 py-5 text-sm text-gray-500">Tudo pronto para enviar.</div>
             ) : (
-              editingDrafts.map((draft) => {
+              editingDrafts.slice(0, 3).map((draft) => {
                 const snippet = extractDraftBody(draft).trim()
                 return (
                   <div key={draft.id} className="px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:bg-white/5">
@@ -324,7 +191,7 @@ export function ManualDraftsView({
                         disabled={isUpdating}
                       >
                         <Pencil className="w-4 h-4" />
-                        Continuar edição
+                        Continuar
                       </Button>
                       <Button
                         size="sm"
@@ -342,13 +209,26 @@ export function ManualDraftsView({
               })
             )}
 
+            {editingDrafts.length > 3 && (
+              <div className="px-4 py-3 flex items-center justify-between text-xs text-gray-500">
+                <span>Mostrando 3 de {editingDrafts.length}.</span>
+                <button
+                  type="button"
+                  className="text-gray-300 hover:text-white underline underline-offset-2"
+                  onClick={() => setSearch('')}
+                >
+                  Ver todos
+                </button>
+              </div>
+            )}
+
             <div className="px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Prontos para enviar ({readyDrafts.length})
             </div>
             {readyDrafts.length === 0 ? (
               <div className="px-4 py-5 text-sm text-gray-500">Nenhum rascunho pronto ainda.</div>
             ) : (
-              readyDrafts.map((draft) => {
+              readyDrafts.slice(0, 3).map((draft) => {
                 const snippet = extractDraftBody(draft).trim()
                 return (
                   <div key={draft.id} className="px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:bg-white/5">
@@ -372,7 +252,7 @@ export function ManualDraftsView({
                         disabled={isSubmitting}
                       >
                         <Send className="w-4 h-4" />
-                        Enviar para a Meta
+                        Enviar
                       </Button>
                       <Button
                         size="sm"
@@ -381,7 +261,7 @@ export function ManualDraftsView({
                         disabled={isUpdating}
                       >
                         <Pencil className="w-4 h-4" />
-                        Continuar edição
+                        Editar
                       </Button>
                       <Button
                         size="sm"
@@ -398,8 +278,22 @@ export function ManualDraftsView({
                 )
               })
             )}
+
+            {readyDrafts.length > 3 && (
+              <div className="px-4 py-3 flex items-center justify-between text-xs text-gray-500">
+                <span>Mostrando 3 de {readyDrafts.length}.</span>
+                <button
+                  type="button"
+                  className="text-gray-300 hover:text-white underline underline-offset-2"
+                  onClick={() => setSearch('')}
+                >
+                  Ver todos
+                </button>
+              </div>
+            )}
           </div>
         )}
+        </div>
       </div>
 
       <div className="text-xs text-gray-500">

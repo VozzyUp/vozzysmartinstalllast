@@ -11,7 +11,7 @@ import { useFlowTemplates } from '@/hooks/useFlowTemplates'
 
 export function CreateFlowFromTemplateDialog(props: {
   isCreating: boolean
-  onCreate: (input: { name: string; templateKey: string }) => void
+  onCreate: (input: { name: string; templateKey: string }) => Promise<any>
 }) {
   const templatesQuery = useFlowTemplates()
 
@@ -107,12 +107,16 @@ export function CreateFlowFromTemplateDialog(props: {
           </Button>
           <Button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               const n = name.trim()
               if (!n || !templateKey) return
-              props.onCreate({ name: n, templateKey })
-              setName('')
-              setOpen(false)
+              try {
+                await props.onCreate({ name: n, templateKey })
+                setName('')
+                setOpen(false)
+              } catch {
+                // Errors handled by mutation toasts.
+              }
             }}
             disabled={!canSubmit}
           >

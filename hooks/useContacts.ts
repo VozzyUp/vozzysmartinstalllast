@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { contactService } from '../services';
 import { Contact, ContactStatus } from '../types';
@@ -34,7 +34,7 @@ export const useContactsController = () => {
 
   // UI State
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ContactStatus | 'ALL'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<ContactStatus | 'ALL' | 'SUPPRESSED'>('ALL');
   const [tagFilter, setTagFilter] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -62,7 +62,7 @@ export const useContactsController = () => {
       tag: tagFilter,
     }),
     staleTime: 30 * 1000,  // 30 segundos
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 
   const contactByIdQuery = useQuery({
@@ -242,7 +242,7 @@ export const useContactsController = () => {
     setCurrentPage(1);
   };
 
-  const handleStatusFilterChange = (status: ContactStatus | 'ALL') => {
+  const handleStatusFilterChange = (status: ContactStatus | 'ALL' | 'SUPPRESSED') => {
     setStatusFilter(status);
     setCurrentPage(1);
   };

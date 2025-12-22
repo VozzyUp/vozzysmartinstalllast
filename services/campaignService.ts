@@ -5,7 +5,15 @@ interface CreateCampaignInput {
   name: string;
   templateName: string;
   recipients: number;
-  selectedContacts?: { name: string; phone: string; custom_fields?: Record<string, unknown> }[];
+  selectedContacts?: {
+    id?: string;
+    contactId?: string;
+    contact_id?: string;
+    name: string;
+    phone: string;
+    email?: string | null;
+    custom_fields?: Record<string, unknown>;
+  }[];
   selectedContactIds?: string[];  // For resume functionality
   scheduledAt?: string;           // ISO timestamp for scheduling
   templateVariables?: { header: string[], body: string[], buttons?: Record<string, string> };   // Meta API structure

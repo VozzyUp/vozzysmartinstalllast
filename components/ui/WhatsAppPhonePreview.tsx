@@ -3,24 +3,76 @@
 import React from 'react';
 import { MessageSquare, Zap, Image, Video, FileText, ExternalLink, Phone, Copy } from 'lucide-react';
 import { TemplateComponent, TemplateButton } from '../../types';
+import { replaceTemplatePlaceholders, type TemplateParameterFormat } from '@/lib/whatsapp/placeholder';
+
+type PreviewVariant = 'whatsapp' | 'smartzap';
+
+const PREVIEW_THEME: Record<PreviewVariant, {
+  headerBg: string;
+  bubbleBg: string;
+  bubbleText: string;
+  bubbleBorder: string;
+  subtleText: string;
+  quoteBorder: string;
+  quoteBg: string;
+  inlineCodeBg: string;
+  codeblockBg: string;
+  divider: string;
+  buttonText: string;
+  buttonHoverBg: string;
+  buttonDivider: string;
+}> = {
+  whatsapp: {
+    headerBg: 'bg-[#202c33]',
+    bubbleBg: 'bg-[#202c33]',
+    bubbleText: 'text-[#e9edef]',
+    bubbleBorder: '',
+    subtleText: 'text-[#8696a0]',
+    quoteBorder: 'border-[#00a884]/60',
+    quoteBg: 'bg-black/10',
+    inlineCodeBg: 'bg-black/25',
+    codeblockBg: 'bg-[#111b21]',
+    divider: 'border-[#111b21]',
+    buttonText: 'text-[#00a884]',
+    buttonHoverBg: 'hover:bg-[#182229]',
+    buttonDivider: 'border-[#111b21]',
+  },
+  smartzap: {
+    headerBg: 'bg-zinc-950/40',
+    bubbleBg: 'bg-zinc-900/60',
+    bubbleText: 'text-white',
+    bubbleBorder: 'border border-white/10',
+    subtleText: 'text-gray-400',
+    quoteBorder: 'border-primary-500/60',
+    quoteBg: 'bg-white/5',
+    inlineCodeBg: 'bg-black/40',
+    codeblockBg: 'bg-zinc-950/60',
+    divider: 'border-white/10',
+    buttonText: 'text-primary-300',
+    buttonHoverBg: 'hover:bg-white/5',
+    buttonDivider: 'border-white/10',
+  },
+};
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
-/**
- * Replaces template variables like {{1}}, {{2}} with actual values
- */
-const replaceVariables = (text: string, variables?: string[]): string => {
-  if (!variables || !Array.isArray(variables) || variables.length === 0) return text;
-
-  let result = text;
-  variables.forEach((value, index) => {
-    const placeholder = `{{${index + 1}}}`;
-    result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value || '');
+const replaceVariables = (
+  text: string,
+  input?: {
+    parameterFormat?: TemplateParameterFormat;
+    positional?: string[];
+    named?: Record<string, string>;
+  }
+): string => {
+  const parameterFormat = input?.parameterFormat ?? 'positional';
+  return replaceTemplatePlaceholders({
+    text,
+    parameterFormat,
+    positionalValues: input?.positional,
+    namedValues: input?.named,
   });
-
-  return result;
 };
 
 type WhatsAppTextBlock =
@@ -127,7 +179,7 @@ const parseWhatsAppTextBlocks = (text: string): WhatsAppTextBlock[] => {
   return blocks;
 };
 
-const renderWhatsAppInline = (text: string, keyPrefix: string): React.ReactNode[] => {
+const renderWhatsAppInline = (text: string, keyPrefix: string, variant: PreviewVariant): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   let i = 0;
   let key = 0;
@@ -146,7 +198,7 @@ const renderWhatsAppInline = (text: string, keyPrefix: string): React.ReactNode[
         nodes.push(
           <code
             key={`${keyPrefix}-code-${key++}`}
-            className="px-1 py-0.5 rounded bg-black/25 text-[#e9edef] font-mono text-[12px]"
+            className={`px-1 py-0.5 rounded ${PREVIEW_THEME[variant].inlineCodeBg} ${PREVIEW_THEME[variant].bubbleText} font-mono text-[12px]`}
           >
             {code}
           </code>
@@ -161,7 +213,7 @@ const renderWhatsAppInline = (text: string, keyPrefix: string): React.ReactNode[
       const end = text.indexOf(ch, i + 1);
       if (end > i + 1) {
         const inner = text.slice(i + 1, end);
-        const innerNodes = renderWhatsAppInline(inner, `${keyPrefix}-in-${key}`);
+        const innerNodes = renderWhatsAppInline(inner, `${keyPrefix}-in-${key}`, variant);
 
         if (ch === '*') {
           nodes.push(
@@ -206,13 +258,13 @@ const renderWhatsAppInline = (text: string, keyPrefix: string): React.ReactNode[
   return nodes;
 };
 
-const renderWhatsAppInlineWithBreaks = (text: string, keyPrefix: string): React.ReactNode => {
+const renderWhatsAppInlineWithBreaks = (text: string, keyPrefix: string, variant: PreviewVariant): React.ReactNode => {
   const parts = text.split(/\r?\n/);
   return (
     <>
       {parts.map((part, idx) => (
         <React.Fragment key={`${keyPrefix}-ln-${idx}`}>
-          {renderWhatsAppInline(part, `${keyPrefix}-ln-${idx}`)}
+          {renderWhatsAppInline(part, `${keyPrefix}-ln-${idx}`, variant)}
           {idx < parts.length - 1 ? <br /> : null}
         </React.Fragment>
       ))}
@@ -220,7 +272,7 @@ const renderWhatsAppInlineWithBreaks = (text: string, keyPrefix: string): React.
   );
 };
 
-const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
+const renderWhatsAppFormattedBody = (text: string, variant: PreviewVariant): React.ReactNode => {
   const blocks = parseWhatsAppTextBlocks(text);
 
   return (
@@ -233,7 +285,7 @@ const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
           return (
             <pre
               key={k}
-              className="bg-[#111b21] rounded-md p-2 text-[#e9edef] font-mono text-[12px] leading-relaxed overflow-x-auto whitespace-pre-wrap"
+              className={`${PREVIEW_THEME[variant].codeblockBg} rounded-md p-2 ${PREVIEW_THEME[variant].bubbleText} font-mono text-[12px] leading-relaxed overflow-x-auto whitespace-pre-wrap ${PREVIEW_THEME[variant].bubbleBorder}`}
             >
               <code>{b.text.replace(/^\n+|\n+$/g, '')}</code>
             </pre>
@@ -242,8 +294,8 @@ const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
 
         if (b.type === 'quote') {
           return (
-            <div key={k} className="border-l-2 border-[#00a884]/60 pl-3 py-0.5 bg-black/10 rounded-sm">
-              {renderWhatsAppInlineWithBreaks(b.text, k)}
+            <div key={k} className={`border-l-2 ${PREVIEW_THEME[variant].quoteBorder} pl-3 py-0.5 ${PREVIEW_THEME[variant].quoteBg} rounded-sm`}>
+              {renderWhatsAppInlineWithBreaks(b.text, k, variant)}
             </div>
           );
         }
@@ -253,8 +305,8 @@ const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
             <div key={k} className="space-y-1">
               {b.items.map((item, itemIdx) => (
                 <div key={`${k}-ul-${itemIdx}`} className="flex gap-2">
-                  <span className="text-[#8696a0]">•</span>
-                  <span className="flex-1">{renderWhatsAppInlineWithBreaks(item, `${k}-ul-${itemIdx}`)}</span>
+                  <span className={PREVIEW_THEME[variant].subtleText}>•</span>
+                  <span className="flex-1">{renderWhatsAppInlineWithBreaks(item, `${k}-ul-${itemIdx}`, variant)}</span>
                 </div>
               ))}
             </div>
@@ -266,8 +318,8 @@ const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
             <div key={k} className="space-y-1">
               {b.items.map((item, itemIdx) => (
                 <div key={`${k}-ol-${itemIdx}`} className="flex gap-2">
-                  <span className="text-[#8696a0]">{itemIdx + 1}.</span>
-                  <span className="flex-1">{renderWhatsAppInlineWithBreaks(item, `${k}-ol-${itemIdx}`)}</span>
+                  <span className={PREVIEW_THEME[variant].subtleText}>{itemIdx + 1}.</span>
+                  <span className="flex-1">{renderWhatsAppInlineWithBreaks(item, `${k}-ol-${itemIdx}`, variant)}</span>
                 </div>
               ))}
             </div>
@@ -275,7 +327,7 @@ const renderWhatsAppFormattedBody = (text: string): React.ReactNode => {
         }
 
         // paragraph
-        return <div key={k}>{renderWhatsAppInlineWithBreaks(b.text, k)}</div>;
+        return <div key={k}>{renderWhatsAppInlineWithBreaks(b.text, k, variant)}</div>;
       })}
     </div>
   );
@@ -316,16 +368,36 @@ interface MessageHeaderProps {
   header: TemplateComponent;
   variables?: string[];
   headerVariables?: string[];
+  parameterFormat?: TemplateParameterFormat;
+  namedVariables?: Record<string, string>;
+  namedHeaderVariables?: Record<string, string>;
+  variant?: PreviewVariant;
 }
 
-const MessageHeader: React.FC<MessageHeaderProps> = ({ header, variables, headerVariables }) => {
+const MessageHeader: React.FC<MessageHeaderProps> = ({
+  header,
+  variables,
+  headerVariables,
+  parameterFormat = 'positional',
+  namedVariables,
+  namedHeaderVariables,
+  variant = 'whatsapp',
+}) => {
   switch (header.format) {
     case 'TEXT':
       if (!header.text) return null;
       return (
-        <div className="bg-[#202c33] p-2 px-3 rounded-lg rounded-tl-none shadow-sm mb-1">
-          <p className="text-[13px] font-bold text-white">
-            {renderWhatsAppInlineWithBreaks(replaceVariables(header.text, headerVariables || variables), 'header')}
+        <div className={`${PREVIEW_THEME[variant].bubbleBg} ${PREVIEW_THEME[variant].bubbleBorder} p-2 px-3 rounded-lg rounded-tl-none shadow-sm mb-1`}>
+          <p className={`text-[13px] font-bold ${PREVIEW_THEME[variant].bubbleText}`}>
+            {renderWhatsAppInlineWithBreaks(
+              replaceVariables(header.text, {
+                parameterFormat,
+                positional: headerVariables || variables,
+                named: namedHeaderVariables || namedVariables,
+              }),
+              'header',
+              variant
+            )}
           </p>
         </div>
       );
@@ -367,15 +439,24 @@ interface MessageBubbleProps {
   components?: TemplateComponent[];
   variables?: string[];
   headerVariables?: string[];
+  parameterFormat?: TemplateParameterFormat;
+  namedVariables?: Record<string, string>;
+  namedHeaderVariables?: Record<string, string>;
   /** Fallback content when no components available */
   fallbackContent?: string;
+  /** Visual variant */
+  variant?: PreviewVariant;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
   components,
   variables,
   headerVariables,
-  fallbackContent
+  parameterFormat = 'positional',
+  namedVariables,
+  namedHeaderVariables,
+  fallbackContent,
+  variant = 'whatsapp',
 }) => {
   // Parse components
   const header = components?.find(c => c.type === 'HEADER');
@@ -400,34 +481,58 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   return (
     <div className="animate-in zoom-in-95 slide-in-from-bottom-2 duration-500 max-w-[95%]">
       {/* Header */}
-      {header && <MessageHeader header={header} variables={variables} headerVariables={headerVariables} />}
+      {header && (
+        <MessageHeader
+          header={header}
+          variables={variables}
+          headerVariables={headerVariables}
+          parameterFormat={parameterFormat}
+          namedVariables={namedVariables}
+          namedHeaderVariables={namedHeaderVariables}
+          variant={variant}
+        />
+      )}
 
       {/* Message Card (Body + Buttons united) */}
-      <div className={`bg-[#202c33] shadow-sm overflow-hidden ${hasButtons ? 'rounded-t-lg rounded-tl-none' : 'rounded-lg rounded-tl-none'}`}>
+      <div className={`${PREVIEW_THEME[variant].bubbleBg} ${PREVIEW_THEME[variant].bubbleBorder} shadow-sm overflow-hidden ${hasButtons ? 'rounded-t-lg rounded-tl-none' : 'rounded-lg rounded-tl-none'}`}>
         {/* Body */}
-        <div className="p-3 text-[13px] leading-relaxed text-[#e9edef]">
-          {renderWhatsAppFormattedBody(replaceVariables(bodyText, variables))}
+        <div className={`p-3 text-[13px] leading-relaxed ${PREVIEW_THEME[variant].bubbleText}`}>
+          {renderWhatsAppFormattedBody(
+            replaceVariables(bodyText, {
+              parameterFormat,
+              positional: variables,
+              named: namedVariables,
+            }),
+            variant
+          )}
 
           {/* Footer */}
           {footer?.text && (
-            <p className="text-[11px] text-[#8696a0] mt-2 italic">
-              {renderWhatsAppInlineWithBreaks(replaceVariables(footer.text, variables), 'footer')}
+            <p className={`text-[11px] ${PREVIEW_THEME[variant].subtleText} mt-2 italic`}>
+              {renderWhatsAppInlineWithBreaks(
+                replaceVariables(footer.text, {
+                  parameterFormat,
+                  positional: variables,
+                  named: namedVariables,
+                }),
+                'footer',
+                variant
+              )}
             </p>
           )}
 
           <div className="flex justify-end items-center gap-1 mt-1">
-            <span className="text-[9px] text-[#8696a0]">10:42</span>
+            <span className={`text-[9px] ${PREVIEW_THEME[variant].subtleText}`}>10:42</span>
           </div>
         </div>
 
         {/* Buttons (inside same card) */}
         {hasButtons && buttons?.buttons && (
-          <div className="border-t border-[#111b21]">
+          <div className={`border-t ${PREVIEW_THEME[variant].divider}`}>
             {buttons.buttons.map((button, index) => (
               <div
                 key={index}
-                className={`text-[#00a884] text-center py-2.5 text-[13px] font-medium cursor-pointer hover:bg-[#182229] transition-colors flex items-center justify-center gap-2 ${index < (buttons.buttons?.length ?? 0) - 1 ? 'border-b border-[#111b21]' : ''
-                  }`}
+                className={`${PREVIEW_THEME[variant].buttonText} text-center py-2.5 text-[13px] font-medium cursor-pointer ${PREVIEW_THEME[variant].buttonHoverBg} transition-colors flex items-center justify-center gap-2 ${index < (buttons.buttons?.length ?? 0) - 1 ? `border-b ${PREVIEW_THEME[variant].buttonDivider}` : ''}`}
               >
                 {BUTTON_ICONS[button.type] || <Zap size={14} />}
                 {button.text}
@@ -451,6 +556,12 @@ interface WhatsAppPhonePreviewProps {
   variables?: string[];
   /** Variables to replace in header. Separate from body indices. */
   headerVariables?: string[];
+  /** How to interpret placeholders: positional ({{1}}) or named ({{first_name}}). */
+  parameterFormat?: TemplateParameterFormat;
+  /** Variables for named templates (BODY). */
+  namedVariables?: Record<string, string>;
+  /** Variables for named templates (HEADER). */
+  namedHeaderVariables?: Record<string, string>;
   /** Fallback content when no components available */
   fallbackContent?: string;
   /** Business name shown in header */
@@ -463,6 +574,8 @@ interface WhatsAppPhonePreviewProps {
   size?: 'sm' | 'md' | 'lg' | 'adaptive';
   /** Additional class names */
   className?: string;
+  /** Visual variant (default keeps WhatsApp look) */
+  variant?: PreviewVariant;
 }
 
 const SIZE_CONFIGS = {
@@ -476,12 +589,16 @@ export const WhatsAppPhonePreview: React.FC<WhatsAppPhonePreviewProps> = ({
   components,
   variables,
   headerVariables,
+  parameterFormat = 'positional',
+  namedVariables,
+  namedHeaderVariables,
   fallbackContent,
   businessName = 'SmartZap Business',
   showEmptyState = true,
   emptyStateMessage = 'Selecione um template',
   size = 'lg',
   className = '',
+  variant = 'whatsapp',
 }) => {
   const sizeConfig = SIZE_CONFIGS[size];
   const hasContent = components?.length || fallbackContent;
@@ -528,7 +645,11 @@ export const WhatsAppPhonePreview: React.FC<WhatsAppPhonePreviewProps> = ({
             components={components}
             variables={variables}
             headerVariables={headerVariables}
+            parameterFormat={parameterFormat}
+            namedVariables={namedVariables}
+            namedHeaderVariables={namedHeaderVariables}
             fallbackContent={fallbackContent}
+            variant={variant}
           />
         ) : showEmptyState ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-600 text-xs gap-2 opacity-50">
@@ -565,24 +686,46 @@ interface CompactPreviewProps {
   components?: TemplateComponent[];
   /** Variables for replacement */
   variables?: string[];
+  /** Variables to replace in header. Separate from body indices. */
+  headerVariables?: string[];
+  /** How to interpret placeholders: positional ({{1}}) or named ({{first_name}}). */
+  parameterFormat?: TemplateParameterFormat;
+  /** Variables for named templates (BODY). */
+  namedVariables?: Record<string, string>;
+  /** Variables for named templates (HEADER). */
+  namedHeaderVariables?: Record<string, string>;
   /** Fallback content */
   fallbackContent?: string;
   /** Additional class */
   className?: string;
+  /** Visual variant (default = smartzap) */
+  variant?: PreviewVariant;
 }
 
 export const CompactPreview: React.FC<CompactPreviewProps> = ({
   components,
   variables,
+  headerVariables,
+  parameterFormat = 'positional',
+  namedVariables,
+  namedHeaderVariables,
   fallbackContent,
   className = '',
+  variant = 'smartzap',
 }) => {
   return (
-    <div className={`bg-[#0b141a] rounded-lg p-4 ${className}`}>
+    <div
+      className={`rounded-xl border border-white/10 bg-zinc-950/40 p-4 shadow-[0_12px_30px_rgba(0,0,0,0.35)] ${className}`}
+    >
       <MessageBubble
         components={components}
         variables={variables}
+        headerVariables={headerVariables}
+        parameterFormat={parameterFormat}
+        namedVariables={namedVariables}
+        namedHeaderVariables={namedHeaderVariables}
         fallbackContent={fallbackContent}
+        variant={variant}
       />
     </div>
   );

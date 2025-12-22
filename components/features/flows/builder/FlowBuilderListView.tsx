@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { Plus, Trash2, ArrowRight, RefreshCw } from 'lucide-react'
 
@@ -23,15 +24,16 @@ export function FlowBuilderListView(props: {
   isFetching: boolean
   search: string
   onSearchChange: (v: string) => void
-  onCreate: (name: string) => void
-  onCreateFromTemplate: (input: { name: string; templateKey: string }) => void
-  onCreateWithAI: (input: { name: string; prompt: string }) => void
+  onCreate: (name: string) => Promise<FlowRow | void>
+  onCreateFromTemplate: (input: { name: string; templateKey: string }) => Promise<FlowRow | void>
+  onCreateWithAI: (input: { name: string; prompt: string }) => Promise<FlowRow | void>
   isCreating: boolean
   isCreatingWithAI: boolean
   onDelete: (id: string) => void
   isDeleting: boolean
   onRefresh: () => void
 }) {
+  const router = useRouter()
   const [newName, setNewName] = useState('')
 
   const canCreate = useMemo(() => newName.trim().length >= 3, [newName])
@@ -59,11 +61,18 @@ export function FlowBuilderListView(props: {
                 />
                 <Button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     const n = newName.trim()
                     if (!n) return
-                    props.onCreate(n)
-                    setNewName('')
+                    try {
+                      const created = await props.onCreate(n)
+                      if (created?.id) {
+                        setNewName('')
+                        router.push(`/flows/builder/${encodeURIComponent(created.id)}`)
+                      }
+                    } catch {
+                      // Errors handled by mutation toasts.
+                    }
                   }}
                   disabled={!canCreate || props.isCreating}
                 >
@@ -76,10 +85,23 @@ export function FlowBuilderListView(props: {
           </div>
 
           <div className="flex items-center gap-2">
-            <CreateFlowWithAIDialog isCreating={props.isCreatingWithAI} onCreate={(input) => props.onCreateWithAI(input)} />
+            <CreateFlowWithAIDialog
+              isCreating={props.isCreatingWithAI}
+              onCreate={async (input) => {
+                const created = await props.onCreateWithAI(input)
+                if (created?.id) {
+                  router.push(`/flows/builder/${encodeURIComponent(created.id)}`)
+                }
+              }}
+            />
             <CreateFlowFromTemplateDialog
               isCreating={props.isCreating}
-              onCreate={(input) => props.onCreateFromTemplate(input)}
+              onCreate={async (input) => {
+                const created = await props.onCreateFromTemplate(input)
+                if (created?.id) {
+                  router.push(`/flows/builder/${encodeURIComponent(created.id)}`)
+                }
+              }}
             />
             <Button
               type="button"

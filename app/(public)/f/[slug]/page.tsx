@@ -49,6 +49,8 @@ export default function PublicLeadFormPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
+  const isInactive = form?.isActive === false && !loadError
+
   useEffect(() => {
     let cancelled = false
 
@@ -153,47 +155,41 @@ export default function PublicLeadFormPage() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-0px)] bg-zinc-950 px-4 py-10 text-zinc-100">
-      <div className="mx-auto w-full max-w-lg">
-        <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
-          <CardHeader>
-            <CardTitle className="text-2xl">{isLoading ? 'Carregando…' : (form?.name || 'Formulário')}</CardTitle>
+    <div className="min-h-[calc(100vh-0px)] bg-zinc-950 px-3 py-6 text-zinc-100 sm:px-4 sm:py-10">
+      <div className="mx-auto w-full max-w-2xl">
+        <Card className="gap-4 border-zinc-800 bg-zinc-900/60 py-5 backdrop-blur sm:gap-6 sm:py-6">
+          <CardHeader className="px-4 sm:px-6">
+            <CardTitle className="text-xl sm:text-2xl">
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {isLoading ? 'Carregando…' : (form?.name || 'Formulário')}
+                {isInactive ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700/80 bg-zinc-800/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-300">
+                    Desativado
+                  </span>
+                ) : null}
+              </span>
+            </CardTitle>
             <CardDescription className="text-zinc-400">
-              Preencha seus dados para ser adicionado automaticamente na lista.
+              {isInactive
+                ? 'Este formulário está temporariamente indisponível.'
+                : 'Preencha seus dados para ser adicionado automaticamente na lista.'}
             </CardDescription>
           </CardHeader>
 
-          <CardContent>
-            {form && form.isActive === false && !loadError ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-5">
+          <CardContent className="px-4 sm:px-6">
+            {isInactive ? (
+              <div className="space-y-3 sm:space-y-4">
                 <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+                  <div className="mt-0.5 rounded-full border border-zinc-800 bg-zinc-900/40 p-2">
                     <CircleSlash className="h-5 w-5 text-zinc-300" />
                   </div>
-                  <div>
-                    <p className="text-base font-semibold text-zinc-100">Formulário desativado</p>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      Este formulário está temporariamente indisponível. Se você recebeu este link, peça um novo link ou confirme se ele foi reativado.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/30 px-3 py-2">
-                  <p className="text-xs text-zinc-500">
-                    Status: <span className="text-zinc-300">Desativado</span>
+                  <p className="text-sm text-zinc-400">
+                    Se você recebeu este link, solicite um novo ou confirme se foi reativado pelo responsável.
                   </p>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="border-zinc-700 bg-zinc-900"
-                    onClick={() => window.location.reload()}
-                  >
-                    Atualizar status
-                  </Button>
                 </div>
 
-                <p className="mt-2 text-xs text-zinc-500">
-                  Se o formulário for reativado pelo responsável, ele volta a aparecer ao atualizar esta página.
+                <p className="text-xs text-zinc-500">
+                  Quando reativado, esta página se atualiza automaticamente.
                 </p>
               </div>
             ) : null}

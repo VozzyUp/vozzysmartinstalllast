@@ -91,8 +91,8 @@ interface ContactListViewProps {
   // Search & Filters
   searchTerm: string;
   onSearchChange: (term: string) => void;
-  statusFilter: ContactStatus | 'ALL';
-  onStatusFilterChange: (status: ContactStatus | 'ALL') => void;
+  statusFilter: ContactStatus | 'ALL' | 'SUPPRESSED';
+  onStatusFilterChange: (status: ContactStatus | 'ALL' | 'SUPPRESSED') => void;
   tagFilter: string;
   onTagFilterChange: (tag: string) => void;
 
@@ -381,8 +381,11 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
     { value: 'ALL', label: 'Todos Status' },
     { value: ContactStatus.OPT_IN, label: 'Opt-in' },
     { value: ContactStatus.OPT_OUT, label: 'Opt-out' },
-    { value: ContactStatus.UNKNOWN, label: 'Desconhecido' }
+    { value: ContactStatus.UNKNOWN, label: 'Desconhecido' },
+    { value: 'SUPPRESSED', label: 'Suprimidos' }
   ];
+  const showSuppressionDetails = statusFilter === 'SUPPRESSED';
+  const tableColSpan = showSuppressionDetails ? 8 : 7;
 
   return (
     <Page className="flex flex-col h-full min-h-0">
@@ -480,7 +483,7 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
             {/* Status Filter */}
             <select
               value={statusFilter}
-              onChange={(e) => onStatusFilterChange(e.target.value as ContactStatus | 'ALL')}
+              onChange={(e) => onStatusFilterChange(e.target.value as ContactStatus | 'ALL' | 'SUPPRESSED')}
               className="px-4 py-2.5 text-sm font-medium bg-zinc-900 text-gray-300 hover:text-white rounded-xl border border-white/10 transition-colors outline-none cursor-pointer"
             >
               {statusOptions.map(opt => (
@@ -569,6 +572,9 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
                 <th scope="col" className="px-6 py-4 font-medium">Contato</th>
                 <th scope="col" className="px-6 py-4 font-medium">Tags</th>
                 <th scope="col" className="px-6 py-4 font-medium">Status</th>
+                {showSuppressionDetails && (
+                  <th scope="col" className="px-6 py-4 font-medium">Motivo</th>
+                )}
                 <th scope="col" className="px-6 py-4 font-medium">Data Criação</th>
                 <th scope="col" className="px-6 py-4 font-medium">Última Atividade</th>
                 <th scope="col" className="px-6 py-4 font-medium text-right">Ações</th>
@@ -577,12 +583,12 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
             <tbody className="divide-y divide-white/5">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={tableColSpan} className="px-6 py-8 text-center text-gray-500">
                     Carregando contatos...
                   </td>
                 </tr>
               ) : contacts.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum contato encontrado.</td></tr>
+                <tr><td colSpan={tableColSpan} className="px-6 py-8 text-center text-gray-500">Nenhum contato encontrado.</td></tr>
               ) : (
                 contacts.map((contact) => (
                   <tr key={contact.id} className="hover:bg-white/5 transition-colors group">
@@ -623,6 +629,14 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
                         {contact.status === ContactStatus.UNKNOWN ? 'DESCONHECIDO' : contact.status}
                       </span>
                     </td>
+                    {showSuppressionDetails && (
+                      <td className="px-6 py-5 text-xs text-gray-400">
+                        <div className="text-sm text-white">{contact.suppressionReason || '—'}</div>
+                        <div className="text-[10px] text-gray-500">
+                          {contact.suppressionSource ? `Fonte: ${contact.suppressionSource}` : 'Fonte: —'}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-6 py-5 text-gray-500 text-xs">
                       {contact.createdAt ? new Date(contact.createdAt).toLocaleDateString('pt-BR') : '-'}
                     </td>

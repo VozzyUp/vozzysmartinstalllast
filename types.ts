@@ -110,6 +110,9 @@ export interface Contact {
   createdAt?: string;
   updatedAt?: string;
   custom_fields?: Record<string, any>;
+  suppressionReason?: string | null;
+  suppressionSource?: string | null;
+  suppressionExpiresAt?: string | null;
 }
 
 // =============================================================================

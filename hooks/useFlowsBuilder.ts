@@ -102,12 +102,12 @@ export const useFlowsBuilderController = () => {
     search,
     setSearch,
 
-    createFlow: (name: string) => createMutation.mutate({ name }),
+    createFlowAsync: (name: string) => createMutation.mutateAsync({ name }),
     isCreating: createMutation.isPending,
 
-    createFlowFromTemplate: (input: { name: string; templateKey: string }) => createFromTemplateMutation.mutate(input),
+    createFlowFromTemplateAsync: (input: { name: string; templateKey: string }) => createFromTemplateMutation.mutateAsync(input),
 
-    createFlowWithAI: (input: { name: string; prompt: string }) => createWithAIMutation.mutate(input),
+    createFlowWithAIAsync: (input: { name: string; prompt: string }) => createWithAIMutation.mutateAsync(input),
     isCreatingWithAI: createWithAIMutation.isPending,
 
     deleteFlow: (id: string) => deleteMutation.mutate(id),

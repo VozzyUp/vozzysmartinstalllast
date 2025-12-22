@@ -40,6 +40,8 @@ const templateOptions = templates.concat([
   { id: 't-8', name: 'boas_vindas', category: 'Utilidade', status: 'Aprovado', preview: 'Se voce recebeu essa mensagem, significa que esta tudo certo!' },
 ])
 
+type TemplateOption = (typeof templateOptions)[number]
+
 export default function CampaignsNewMockPage() {
   const [step, setStep] = useState(1)
   const [audienceMode, setAudienceMode] = useState('todos')
@@ -52,12 +54,12 @@ export default function CampaignsNewMockPage() {
   const [sendToSelected, setSendToSelected] = useState(false)
   const [templateSelected, setTemplateSelected] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState(templateOptions[0])
-  const [previewTemplate, setPreviewTemplate] = useState(null)
+  const [previewTemplate, setPreviewTemplate] = useState<TemplateOption | null>(null)
   const [showAllTemplates, setShowAllTemplates] = useState(false)
   const [scheduleMode, setScheduleMode] = useState('imediato')
   const [customFields, setCustomFields] = useState(['teste'])
   const [newCustomField, setNewCustomField] = useState('')
-  const [activeVariablePicker, setActiveVariablePicker] = useState(null)
+  const [activeVariablePicker, setActiveVariablePicker] = useState<string | null>(null)
   const [templateVars, setTemplateVars] = useState({
     header: [{ id: '{{1}}', key: 'nome', required: true }],
     body: [
@@ -79,7 +81,7 @@ export default function CampaignsNewMockPage() {
   const activeTemplate = previewTemplate ?? selectedTemplate ?? templateOptions[0]
   const recentTemplates = templateOptions.slice(0, 3)
   const recommendedTemplates = templateOptions.slice(3, 6)
-  const renderTemplatePreview = (text) =>
+  const renderTemplatePreview: (text: string) => string = (text) =>
     text
       .replaceAll('{{1}}', previewTelefone)
       .replaceAll('{{2}}', previewHoras)
@@ -99,11 +101,11 @@ export default function CampaignsNewMockPage() {
     email: 'ricardo@smartzap.com',
     teste: '24',
   }
-  const resolveValue = (key) => sampleValues[key] ?? key
+  const resolveValue: (key: string) => string = (key) => (sampleValues as Record<string, string>)[key] ?? key
   const previewName = resolveValue(templateVars.header[0]?.key)
   const previewTelefone = resolveValue(templateVars.body[0]?.key)
   const previewHoras = resolveValue(templateVars.body[1]?.key)
-  const setTemplateVar = (section, index, key) => {
+  const setTemplateVar = (section: 'header' | 'body', index: number, key: string) => {
     setTemplateVars((prev) => {
       const next = { ...prev, [section]: [...prev[section]] }
       next[section][index] = { ...next[section][index], key }
@@ -178,7 +180,7 @@ export default function CampaignsNewMockPage() {
                       placeholder="Nome da campanha"
                     />
                     <div className="relative w-full lg:w-auto">
-                      <select className="w-full min-w-[140px] appearance-none rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 pr-9 text-sm text-white lg:w-auto">
+                      <select className="w-full min-w-35 appearance-none rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2 pr-9 text-sm text-white lg:w-auto">
                         <option>Utilidade</option>
                         <option>Marketing</option>
                         <option>Suporte</option>

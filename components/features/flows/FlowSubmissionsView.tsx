@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -39,10 +39,21 @@ export function FlowSubmissionsView(props: {
   onFlowIdFilterChange: (v: string) => void
   onRefresh: () => void
   builderFlows?: FlowRow[]
+  title?: string
+  subtitle?: string
+  showFilters?: boolean
+  limit?: number
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
+  const [filtersOpen, setFiltersOpen] = useState(props.showFilters ?? true)
 
   const rows = useMemo(() => props.submissions || [], [props.submissions])
+  const visibleRows = useMemo(() => (props.limit ? rows.slice(0, props.limit) : rows), [props.limit, rows])
+
+  useEffect(() => {
+    if (props.showFilters === undefined) return
+    setFiltersOpen(props.showFilters)
+  }, [props.showFilters])
 
   const builderByMetaFlowId = useMemo(() => {
     const out = new Map<string, FlowRow>()
@@ -61,52 +72,19 @@ export function FlowSubmissionsView(props: {
   return (
     <div className="space-y-4">
       <div className="glass-panel p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Filtrar por telefone (from_phone)</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 text-gray-500" size={16} />
-                <Input
-                  value={props.phoneFilter}
-                  onChange={(e) => props.onPhoneFilterChange(e.target.value)}
-                  placeholder="Ex: +5511999999999"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Flow (Builder)</label>
-              <Select
-                value={props.flowIdFilter?.trim() ? props.flowIdFilter : '__all__'}
-                onValueChange={(v) => props.onFlowIdFilterChange(v === '__all__' ? '' : v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos</SelectItem>
-                  {builderFlowOptions.map((f) => (
-                    <SelectItem key={f.id} value={String(f.meta_flow_id)}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Filtrar por Flow ID</label>
-              <Input
-                value={props.flowIdFilter}
-                onChange={(e) => props.onFlowIdFilterChange(e.target.value)}
-                placeholder="Ex: 1234567890"
-              />
-            </div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-white">{props.title || 'Submissões'}</div>
+            {props.subtitle ? (
+              <div className="text-xs text-gray-500 mt-1">{props.subtitle}</div>
+            ) : null}
           </div>
-
           <div className="flex items-center gap-2">
+            {props.showFilters === false && (
+              <Button type="button" variant="ghost" onClick={() => setFiltersOpen((prev) => !prev)}>
+                {filtersOpen ? 'Ocultar filtros' : 'Mostrar filtros'}
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -119,8 +97,60 @@ export function FlowSubmissionsView(props: {
           </div>
         </div>
 
+        {(props.showFilters !== false || filtersOpen) && (
+          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Filtrar por telefone (from_phone)</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 text-gray-500" size={16} />
+                  <Input
+                    value={props.phoneFilter}
+                    onChange={(e) => props.onPhoneFilterChange(e.target.value)}
+                    placeholder="Ex: +5511999999999"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Flow (Builder)</label>
+                <Select
+                  value={props.flowIdFilter?.trim() ? props.flowIdFilter : '__all__'}
+                  onValueChange={(v) => props.onFlowIdFilterChange(v === '__all__' ? '' : v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Todos</SelectItem>
+                    {builderFlowOptions.map((f) => (
+                      <SelectItem key={f.id} value={String(f.meta_flow_id)}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Filtrar por Flow ID</label>
+                <Input
+                  value={props.flowIdFilter}
+                  onChange={(e) => props.onFlowIdFilterChange(e.target.value)}
+                  placeholder="Ex: 1234567890"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mt-3 text-xs text-gray-500">
-          {props.isLoading ? 'Carregando…' : `Mostrando ${rows.length} registro(s)`}
+          {props.isLoading
+            ? 'Carregando…'
+            : props.limit
+              ? `Mostrando ${visibleRows.length} de ${rows.length} registro(s)`
+              : `Mostrando ${rows.length} registro(s)`}
           {props.isFetching && !props.isLoading ? ' (atualizando…)': ''}
         </div>
       </div>
@@ -137,14 +167,14 @@ export function FlowSubmissionsView(props: {
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {visibleRows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
                   Nenhuma submissão encontrada.
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
+              visibleRows.map((r) => {
                 const isOpen = openId === r.id
                 const builder = r.flow_id ? builderByMetaFlowId.get(String(r.flow_id)) : undefined
                 return (
@@ -182,12 +212,12 @@ export function FlowSubmissionsView(props: {
                           {isOpen ? (
                             <>
                               <ChevronUp size={16} />
-                              Fechar
+                              Fechar detalhes
                             </>
                           ) : (
                             <>
                               <ChevronDown size={16} />
-                              Ver JSON
+                              Ver detalhes
                             </>
                           )}
                         </Button>
@@ -238,4 +268,3 @@ export function FlowSubmissionsView(props: {
     </div>
   )
 }
-

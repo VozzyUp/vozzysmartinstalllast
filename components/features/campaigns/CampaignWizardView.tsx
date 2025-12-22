@@ -50,7 +50,7 @@ import {
   Zap
 } from 'lucide-react';
 import { PrefetchLink } from '@/components/ui/PrefetchLink';
-import { Template, Contact, TestContact, CustomFieldDefinition } from '../../../types';
+import { Template, Contact, ContactStatus, TestContact, CustomFieldDefinition } from '../../../types';
 import { campaignService } from '../../../services/campaignService';
 import { contactService } from '../../../services/contactService';
 import { customFieldService } from '@/services/customFieldService';
@@ -520,6 +520,8 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   isOverLimit = false,
   currentLimit = 250
 }) => {
+  const router = useRouter();
+
   type QuickEditTarget =
     | { type: 'email' }
     | { type: 'custom_field'; key: string };
@@ -567,13 +569,13 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   const optInCount = useMemo(() => {
     // Preferir contagem já filtrada (opt-out + supressões), calculada no controller.
     if (audienceStats) return audienceStats.optInEligible;
-    return (allContacts || []).filter((c) => c.status === 'OPT_IN').length;
+    return (allContacts || []).filter((c) => c.status === ContactStatus.OPT_IN).length;
   }, [allContacts, audienceStats]);
 
   const eligibleContactsCount = useMemo(() => {
     // "Todos" = base - opt-out - supressões
     if (audienceStats) return audienceStats.eligible;
-    return (allContacts || []).filter((c) => c.status !== 'OPT_OUT').length;
+    return (allContacts || []).filter((c) => c.status !== ContactStatus.OPT_OUT).length;
   }, [allContacts, audienceStats]);
 
   type AudienceDraft = {
@@ -2078,7 +2080,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                                 {(segmentOneContactDraft || '').trim() && (
                                   <div className="mt-2 max-h-40 overflow-auto rounded-xl border border-white/10 bg-zinc-950/30">
                                     {allContacts
-                                      .filter((c) => c.status !== 'OPT_OUT')
+                                      .filter((c) => c.status !== ContactStatus.OPT_OUT)
                                       .filter((c) => {
                                         const q = segmentOneContactDraft.trim().toLowerCase();
                                         const name = String(c.name || '').toLowerCase();
