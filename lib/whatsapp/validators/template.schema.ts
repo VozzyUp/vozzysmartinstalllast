@@ -329,7 +329,13 @@ export const CreateTemplateSchema = z.object({
         (text.match(/\{\{\s*([^}]+)\s*\}\}/g) || []).map((m) => m.replace(/\{\{|\}\}/g, '').trim()).filter(Boolean)
 
     const textHasEdgeParameter = (text: string) => {
-        const trimmed = text.trim()
+        // A Meta considera inválido quando o primeiro/último "token" útil é uma variável.
+        // Isso inclui casos como "{{1}}!" (pontuação no fim) e "( {{1}} )".
+        // Então removemos pontuação/símbolos nas bordas antes de checar.
+        const trimmed = text
+            .trim()
+            .replace(/^[\s\p{P}\p{S}]+/gu, '')
+            .replace(/[\s\p{P}\p{S}]+$/gu, '')
         if (!trimmed) return { starts: false, ends: false }
         return {
             starts: /^\{\{\s*[^}]+\s*\}\}/.test(trimmed),

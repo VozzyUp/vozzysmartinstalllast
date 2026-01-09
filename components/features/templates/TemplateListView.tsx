@@ -50,6 +50,7 @@ interface TemplateListViewProps {
 
   // Manual drafts (para ações específicas de rascunho manual dentro da lista geral)
   manualDraftIds: Set<string>;
+  manualDraftSendStateById?: Record<string, { canSend: boolean; reason?: string }>;
   submitManualDraft: (id: string) => void;
   submittingManualDraftId: string | null;
   deleteManualDraft: (id: string) => void;
@@ -158,6 +159,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
   setStatusFilter,
   onSync,
   manualDraftIds,
+  manualDraftSendStateById,
   submitManualDraft,
   submittingManualDraftId,
   deleteManualDraft,
@@ -277,7 +279,11 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
   }
 
   const canSendDraft = (t: Template) => {
-    // Heurística simples e consistente com a UX anterior: precisa ter corpo.
+    // Preferir a validação real do rascunho (spec -> CreateTemplateSchema) vinda do controller.
+    const state = manualDraftSendStateById?.[t.id]
+    if (state) return state.canSend
+
+    // Fallback: heurística simples (legado).
     return String(t.content || '').trim().length > 0;
   }
 
@@ -311,7 +317,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
 
           <button
             onClick={() => setIsBulkModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 text-black rounded-xl font-semibold hover:bg-emerald-400 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 focus-visible:outline-offset-2"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 text-black rounded-xl font-semibold hover:bg-emerald-400 transition-colors focus-visible:outline focus-visible:outline-emerald-400 focus-visible:outline-offset-2"
             aria-label="Gerar templates de utilidade em massa"
           >
             <Zap size={18} className="text-emerald-900" aria-hidden="true" />
@@ -319,7 +325,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
           </button>
           <button
             onClick={() => setIsAiModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-950/40 text-gray-200 border border-white/10 rounded-xl font-semibold hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 focus-visible:outline-offset-2"
+            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-950/40 text-gray-200 border border-white/10 rounded-xl font-semibold hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-emerald-400 focus-visible:outline-offset-2"
             aria-label="Criar novo template usando inteligência artificial"
           >
             <Sparkles size={18} className="text-emerald-300" aria-hidden="true" />
@@ -328,7 +334,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
           <button
             onClick={onSync}
             disabled={isSyncing}
-            className={`flex items-center gap-2 px-4 py-2.5 bg-zinc-950/40 border border-white/10 text-gray-200 rounded-xl font-medium hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${isSyncing ? 'opacity-75 cursor-wait' : ''}`}
+            className={`flex items-center gap-2 px-4 py-2.5 bg-zinc-950/40 border border-white/10 text-gray-200 rounded-xl font-medium hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-primary-500 focus-visible:outline-offset-2 ${isSyncing ? 'opacity-75 cursor-wait' : ''}`}
             aria-label={isSyncing ? "Sincronizando templates com WhatsApp" : "Sincronizar templates com WhatsApp"}
           >
             <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} aria-hidden="true" />
@@ -350,7 +356,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
             <button
               key={cat.value}
               onClick={() => setCategoryFilter(cat.value)}
-              className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 focus-visible:outline-offset-2 ${categoryFilter === cat.value
+              className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-widest transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-emerald-400 focus-visible:outline-offset-2 ${categoryFilter === cat.value
                 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
                 : 'border-white/10 bg-zinc-950/40 text-gray-400 hover:text-white'
                 }`}
@@ -373,7 +379,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
             <button
               key={s.value}
               onClick={() => setStatusFilter(s.value as any)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 focus-visible:outline-offset-2 ${statusFilter === s.value
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-emerald-400 focus-visible:outline-offset-2 ${statusFilter === s.value
                 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
                 : 'border-white/10 bg-zinc-950/40 text-gray-400 hover:text-white'
                 }`}
@@ -525,6 +531,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
                     const isSubmitting = submittingManualDraftId === template.id
                     const isDeletingDraft = deletingManualDraftId === template.id
                     const canSend = canSendDraft(template)
+                    const sendReason = manualDraftSendStateById?.[template.id]?.reason
                     const isRowSelected = manual ? selectedManualDraftIds.has(template.id) : selectedMetaTemplates.has(template.name)
 
                     return (
@@ -649,7 +656,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
                                 ? 'opacity-60 cursor-not-allowed bg-emerald-500/10 text-emerald-200 border border-emerald-500/20'
                                 : 'bg-emerald-500 text-black hover:bg-emerald-400'
                                 }`}
-                              title={!canSend ? 'Preencha o corpo do template antes de enviar' : 'Enviar pra Meta'}
+                              title={!canSend ? (sendReason || 'Corrija o template antes de enviar') : 'Enviar pra Meta'}
                             >
                               {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                               Enviar pra Meta
@@ -694,7 +701,7 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
       </div>
 
       {hoveredTemplate && (
-        <div className="pointer-events-none hidden xl:block fixed right-8 top-32 z-40 w-[360px]">
+        <div className="pointer-events-none hidden xl:block fixed right-8 top-32 z-40 w-90">
           <TemplatePreviewCard
             templateName={hoveredTemplate.name}
             components={hoveredTemplate.components}

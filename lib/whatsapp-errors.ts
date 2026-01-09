@@ -869,17 +869,29 @@ export function getUserFriendlyMessageForMetaError(input: WhatsAppMetaErrorConte
   const message = truncateText(normalizeMetaText(input.message), 240)
   const title = truncateText(normalizeMetaText(input.title), 160)
 
+  // Caso comum em templates com HEADER de mídia: a Meta aceita o envio, mas depois falha
+  // ao baixar do "weblink" (403). Alguns tenants recebem isso como 131052/131053/131054.
+  // Ajustamos a mensagem para evitar confusão com "upload".
+  const blob = `${title} ${message} ${details}`.toLowerCase()
+  const isWeblink403 =
+    blob.includes('weblink') &&
+    (blob.includes('http code 403') || blob.includes(' 403') || blob.includes('forbidden'))
+
+  const baseUserMessage = isWeblink403
+    ? 'Erro ao baixar mídia do link do template (403).'
+    : base.userMessage
+
   // Preferimos details (mais específico) e evitamos repetir texto idêntico ao userMessage.
   const shouldAppend = (value: string) =>
-    Boolean(value) && value.toLowerCase() !== base.userMessage.toLowerCase()
+    Boolean(value) && value.toLowerCase() !== baseUserMessage.toLowerCase()
 
-  if (shouldAppend(details)) return `${base.userMessage} — Detalhe (Meta): ${details}`
+  if (shouldAppend(details)) return `${baseUserMessage} — Detalhe (Meta): ${details}`
   if (shouldAppend(message) && message.toLowerCase() !== title.toLowerCase()) {
-    return `${base.userMessage} — Detalhe (Meta): ${message}`
+    return `${baseUserMessage} — Detalhe (Meta): ${message}`
   }
-  if (shouldAppend(title)) return `${base.userMessage} — Detalhe (Meta): ${title}`
+  if (shouldAppend(title)) return `${baseUserMessage} — Detalhe (Meta): ${title}`
 
-  return base.userMessage
+  return baseUserMessage
 }
 
 /**

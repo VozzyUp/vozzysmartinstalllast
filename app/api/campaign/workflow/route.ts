@@ -113,6 +113,31 @@ function getUrlHost(value: string): string | null {
   }
 }
 
+function urlLooksLikeMetaWeblink(value: string): boolean {
+  try {
+    const u = new URL(value)
+    const host = String(u.host || '').toLowerCase()
+    const path = String(u.pathname || '').toLowerCase()
+
+    // Observação: os "weblinks" mais problemáticos vêm de hosts da Meta e costumam exigir auth.
+    if (
+      host.includes('lookaside') ||
+      host.includes('fbsbx') ||
+      host.includes('facebook') ||
+      host.includes('fbcdn')
+    ) {
+      return true
+    }
+
+    // Alguns links usam endpoints de attachments e/ou param mid.
+    if (path.includes('attachments') || u.searchParams.has('mid')) return true
+
+    return false
+  } catch {
+    return false
+  }
+}
+
 function guessExtFromContentType(contentType: string | null | undefined): string {
   const ct = String(contentType || '').toLowerCase().split(';')[0].trim()
   if (ct === 'image/jpeg' || ct === 'image/jpg') return 'jpg'
@@ -636,8 +661,20 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
           // Fallback: quando o weblink retornado pela Meta não é acessível pelos servidores do WhatsApp,
           // tentamos baixar a mídia no backend e re-hospedar em um URL público (Supabase Storage).
-          let hostedHeaderMediaUrlForBatch: string | null = null
-          let hostPromise: Promise<string | null> | null = null
+          type HostedHeaderMediaResult = {
+            url: string
+            mode: 'public' | 'signed'
+            bucket: string
+            path: string
+            contentType?: string
+            size?: number
+            downloadStatus?: number
+            publicProbeStatus?: number
+            signedExpiresIn?: number
+          }
+
+          let hostedHeaderMediaForBatch: HostedHeaderMediaResult | null = null
+          let hostPromise: Promise<HostedHeaderMediaResult | null> | null = null
 
           const ensureRefreshedTemplateForBatch = async (): Promise<any | null> => {
             if (refreshedTemplateForBatch) return refreshedTemplateForBatch
@@ -669,8 +706,8 @@ export const { POST } = serve<CampaignWorkflowInput>(
             return out
           }
 
-          const ensureHostedHeaderMediaUrlForBatch = async (templateCandidate?: any): Promise<string | null> => {
-            if (hostedHeaderMediaUrlForBatch) return hostedHeaderMediaUrlForBatch
+          const ensureHostedHeaderMediaUrlForBatch = async (templateCandidate?: any): Promise<HostedHeaderMediaResult | null> => {
+            if (hostedHeaderMediaForBatch) return hostedHeaderMediaForBatch
             if (hostPromise) return await hostPromise
 
             hostPromise = (async () => {
@@ -684,7 +721,9 @@ export const { POST } = serve<CampaignWorkflowInput>(
                 const maxBytes = Number(process.env.MEDIA_REHOST_MAX_BYTES || String(25 * 1024 * 1024))
 
                 const downloaded = await tryDownloadBinary(example, accessToken)
-                if (!downloaded.ok || !downloaded.buffer) return null
+                if (!downloaded.ok || !downloaded.buffer) {
+                  return null
+                }
                 if (typeof downloaded.size === 'number' && downloaded.size > maxBytes) return null
 
                 const client = supabase.admin
@@ -696,6 +735,14 @@ export const { POST } = serve<CampaignWorkflowInput>(
                   await client.storage.createBucket(bucket, { public: true })
                 } catch {
                   // ignore (já existe / sem permissão)
+                }
+
+                // Best-effort: se o bucket já existia e estava privado, tentamos torná-lo público.
+                // (Caso contrário, getPublicUrl vai gerar um URL que retorna 403.)
+                try {
+                  await client.storage.updateBucket(bucket, { public: true })
+                } catch {
+                  // ignore
                 }
 
                 const contentType = downloaded.contentType || 'application/octet-stream'
@@ -717,8 +764,62 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
                 const pub = client.storage.from(bucket).getPublicUrl(path)
                 const publicUrl = pub?.data?.publicUrl
-                hostedHeaderMediaUrlForBatch = publicUrl || null
-                return hostedHeaderMediaUrlForBatch
+
+                // Proba rápida: valida se o URL público realmente é acessível sem auth.
+                // Se retornar 403/401, caímos para signed URL (TTL alto), que costuma funcionar melhor com a Meta.
+                const probeTimeoutMs = Number(process.env.MEDIA_PUBLIC_PROBE_TIMEOUT_MS || '8000')
+                const probe = async (url: string) => {
+                  try {
+                    const controller = new AbortController()
+                    const t = setTimeout(() => controller.abort(), probeTimeoutMs)
+                    try {
+                      const res = await fetch(url, { method: 'GET', signal: controller.signal })
+                      return res.status
+                    } finally {
+                      clearTimeout(t)
+                    }
+                  } catch {
+                    return 0
+                  }
+                }
+
+                if (publicUrl) {
+                  const status = await probe(publicUrl)
+                  if (status >= 200 && status < 300) {
+                    hostedHeaderMediaForBatch = {
+                      url: publicUrl,
+                      mode: 'public',
+                      bucket,
+                      path,
+                      contentType,
+                      size: downloaded.size,
+                      downloadStatus: downloaded.status,
+                      publicProbeStatus: status,
+                    }
+                    return hostedHeaderMediaForBatch
+                  }
+
+                  // Se não é acessível publicamente, tenta signed URL.
+                  const expiresIn = Number(process.env.MEDIA_SIGNED_URL_TTL_SECONDS || String(24 * 60 * 60))
+                  const signed = await client.storage.from(bucket).createSignedUrl(path, expiresIn)
+                  const signedUrl = signed?.data?.signedUrl
+                  if (signedUrl) {
+                    hostedHeaderMediaForBatch = {
+                      url: signedUrl,
+                      mode: 'signed',
+                      bucket,
+                      path,
+                      contentType,
+                      size: downloaded.size,
+                      downloadStatus: downloaded.status,
+                      publicProbeStatus: status,
+                      signedExpiresIn: expiresIn,
+                    }
+                    return hostedHeaderMediaForBatch
+                  }
+                }
+
+                return null
               } catch (e) {
                 console.warn('[Workflow] Falha ao re-hospedar mídia do header (best-effort):', e)
                 return null
@@ -727,6 +828,83 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
             const out = await hostPromise
             return out
+          }
+
+          // ==============================================
+          // PREVENTIVO: Rehost antes de enviar (evita falha
+          // assíncrona no webhook mesmo quando o send é aceito)
+          // ==============================================
+          try {
+            const headerInfoPre = getTemplateHeaderMediaExampleLink(templateForBatch)
+            const examplePre = headerInfoPre.example
+            const headerIsMediaPre = Boolean(
+              headerInfoPre.format && ['IMAGE', 'VIDEO', 'DOCUMENT', 'GIF'].includes(String(headerInfoPre.format))
+            )
+
+            const shouldProactivelyRehost =
+              headerIsMediaPre &&
+              Boolean(examplePre && isHttpUrl(examplePre)) &&
+              (urlLooksLikeMetaWeblink(String(examplePre)) || process.env.ALWAYS_REHOST_TEMPLATE_MEDIA === '1')
+
+            if (shouldProactivelyRehost && examplePre) {
+              await emitWorkflowTrace({
+                traceId,
+                campaignId,
+                step,
+                batchIndex,
+                phase: 'template_media_rehost_prepare_start',
+                ok: true,
+                extra: {
+                  headerFormat: headerInfoPre.format || null,
+                  exampleHost: getUrlHost(String(examplePre)) || null,
+                },
+              })
+
+              const hosted = await ensureHostedHeaderMediaUrlForBatch(templateForBatch)
+              if (hosted?.url) {
+                templateForBatch = overrideTemplateHeaderExampleLink(templateForBatch, hosted.url)
+
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  phase: 'template_media_rehost_prepare_ok',
+                  ok: true,
+                  extra: {
+                    hostedMode: hosted.mode,
+                    hostedHost: getUrlHost(hosted.url),
+                    publicProbeStatus: hosted.publicProbeStatus ?? null,
+                    signedExpiresIn: hosted.signedExpiresIn ?? null,
+                  },
+                })
+              } else {
+                await emitWorkflowTrace({
+                  traceId,
+                  campaignId,
+                  step,
+                  batchIndex,
+                  phase: 'template_media_rehost_prepare_skip',
+                  ok: true,
+                  extra: {
+                    reason: 'rehost_failed_or_unavailable',
+                  },
+                })
+              }
+            }
+          } catch (e) {
+            // Best-effort: nunca bloquear envio por causa disso.
+            await emitWorkflowTrace({
+              traceId,
+              campaignId,
+              step,
+              batchIndex,
+              phase: 'template_media_rehost_prepare_error',
+              ok: false,
+              extra: {
+                error: e instanceof Error ? e.message : String(e),
+              },
+            })
           }
 
           // Check pause status once per batch (trade-off: no DB hit per contact)
@@ -1333,7 +1511,8 @@ export const { POST } = serve<CampaignWorkflowInput>(
                     },
                   })
 
-                  const hostedUrl = await ensureHostedHeaderMediaUrlForBatch(activeTemplateForRehost)
+                  const hosted = await ensureHostedHeaderMediaUrlForBatch(activeTemplateForRehost)
+                  const hostedUrl = hosted?.url
                   if (hostedUrl) {
                     const patched = overrideTemplateHeaderExampleLink(activeTemplateForRehost, hostedUrl)
 
@@ -1392,7 +1571,13 @@ export const { POST } = serve<CampaignWorkflowInput>(
                         phase: 'template_media_rehost_ok',
                         ok: true,
                         ms: retryMs,
-                        extra: { messageId, hostedHost: getUrlHost(hostedUrl) },
+                        extra: {
+                          messageId,
+                          hostedHost: getUrlHost(hostedUrl),
+                          hostedMode: hosted?.mode || null,
+                          publicProbeStatus: hosted?.publicProbeStatus ?? null,
+                          signedExpiresIn: hosted?.signedExpiresIn ?? null,
+                        },
                       })
 
                       sentCount++
@@ -1416,6 +1601,9 @@ export const { POST } = serve<CampaignWorkflowInput>(
                         errorCode: data3?.error?.code,
                         errorType: data3?.error?.type,
                         fbtrace_id: data3?.error?.fbtrace_id,
+                        hostedMode: hosted?.mode || null,
+                        publicProbeStatus: hosted?.publicProbeStatus ?? null,
+                        signedExpiresIn: hosted?.signedExpiresIn ?? null,
                       },
                     })
                   } else {

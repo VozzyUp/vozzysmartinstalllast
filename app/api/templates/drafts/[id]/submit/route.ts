@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { CreateTemplateSchema } from '@/lib/whatsapp/validators/template.schema'
 import { templateService } from '@/lib/whatsapp/template.service'
+import { MetaAPIError } from '@/lib/whatsapp/errors'
 
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
@@ -71,6 +72,24 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
       status: nextStatus,
     })
   } catch (error) {
+    if (error instanceof MetaAPIError) {
+      return NextResponse.json(
+        {
+          error: error.userMessage || error.message || 'Erro na Meta ao criar template.',
+          meta: {
+            code: error.code,
+            subcode: error.subcode,
+            type: error.type,
+            fbtrace_id: error.fbtrace_id,
+            message: error.message,
+            userTitle: error.userTitle,
+            userMessage: error.userMessage,
+          },
+        },
+        { status: 400 }
+      )
+    }
+
     const message = error instanceof Error ? error.message : 'Internal Server Error'
     return NextResponse.json({ error: message }, { status: 400 })
   }

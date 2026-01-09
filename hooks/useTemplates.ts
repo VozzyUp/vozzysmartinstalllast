@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { templateService, UtilityCategory, GeneratedTemplate, GenerateUtilityParams } from '../services/templateService';
 import { manualDraftsService } from '../services/manualDraftsService';
 import { Template } from '../types';
+import { CreateTemplateSchema } from '@/lib/whatsapp/validators/template.schema';
 
 // Informações das categorias de utility para o UI
 export const UTILITY_CATEGORIES: Record<UtilityCategory, { name: string; icon: string }> = {
@@ -108,6 +109,47 @@ export const useTemplatesController = () => {
     const ids = new Set<string>()
     for (const d of manualDraftsQuery.data || []) ids.add(d.id)
     return ids
+  }, [manualDraftsQuery.data])
+
+  type ManualDraftSendState = {
+    canSend: boolean
+    reason?: string
+  }
+
+  const manualDraftSendStateById = useMemo<Record<string, ManualDraftSendState>>(() => {
+    const map: Record<string, ManualDraftSendState> = {}
+
+    const drafts = manualDraftsQuery.data || []
+    for (const d of drafts) {
+      // Regra: para enviar para a Meta, precisamos de um spec válido.
+      // (Templates antigos/bugados podem não ter spec; nesses casos, forçamos o usuário a abrir/salvar no editor.)
+      if (!d?.spec) {
+        map[d.id] = {
+          canSend: false,
+          reason: 'Rascunho incompleto: abra e salve no editor antes de enviar.',
+        }
+        continue
+      }
+
+      const parsed = CreateTemplateSchema.safeParse(d.spec)
+      if (parsed.success) {
+        map[d.id] = { canSend: true }
+        continue
+      }
+
+      const first = parsed.error.issues?.[0]
+      const baseMessage = first?.message || 'Template inválido.'
+      const hint = baseMessage.toLowerCase().includes('não pode começar')
+        ? `${baseMessage} (Meta: 2388299)`
+        : baseMessage
+
+      map[d.id] = {
+        canSend: false,
+        reason: hint,
+      }
+    }
+
+    return map
   }, [manualDraftsQuery.data])
 
   // Ao trocar abas/filtros, zera seleção para evitar ações em itens "de outra tela".
@@ -239,6 +281,17 @@ export const useTemplatesController = () => {
       setSubmittingManualDraftId(null)
     },
   })
+
+  const submitManualDraft = (id: string) => {
+    const state = manualDraftSendStateById[id]
+    if (state && !state.canSend) {
+      toast.error(state.reason || 'Corrija o template antes de enviar para a Meta')
+      return
+    }
+
+    // Se não temos o estado (ex.: drafts ainda carregando), mantém o comportamento atual.
+    submitManualDraftMutation.mutate(id)
+  }
 
   const deleteManualDraftMutation = useMutation({
     mutationFn: async (id: string) => manualDraftsService.remove(id),
@@ -598,6 +651,7 @@ export const useTemplatesController = () => {
     // Manual drafts (identificação + ações)
     manualDraftIds,
     isLoadingManualDraftIds: manualDraftsQuery.isLoading,
+    manualDraftSendStateById,
     createManualDraft: async (input: { name: string; category?: string; language?: string; parameterFormat?: 'positional' | 'named' }) => {
       const normalized = normalizeManualTemplateName(input.name)
       return await createManualDraftMutation.mutateAsync({
@@ -606,7 +660,7 @@ export const useTemplatesController = () => {
       })
     },
     isCreatingManualDraft: createManualDraftMutation.isPending,
-    submitManualDraft: (id: string) => submitManualDraftMutation.mutate(id),
+    submitManualDraft,
     submittingManualDraftId,
     deleteManualDraft: (id: string) => deleteManualDraftMutation.mutate(id),
     deletingManualDraftId,
