@@ -92,3 +92,31 @@ export {
   parseScheduleDate,
   getSuggestedScheduleDate,
 } from './scheduling'
+
+// =============================================================================
+// MERGING
+// =============================================================================
+
+export {
+  // Types
+  type CampaignMessagesResponse,
+  // Functions
+  isCampaignReset,
+  mergeCampaignCountersMonotonic,
+  mergeMessageStatsMonotonic,
+} from './merging'
+
+// =============================================================================
+// MESSAGE FILTERING
+// =============================================================================
+
+export {
+  // Types
+  type MessageFilterStatus,
+  type MessageFilterCriteria,
+  type MessageStatusCounts,
+  // Functions
+  filterMessages,
+  getMessageStatusCounts,
+  calculateRealStats,
+} from './message-filtering'

@@ -1,9 +1,52 @@
 /**
  * Template Business Logic Module
  *
- * Pure functions for template variable parsing, mapping, and validation.
+ * Pure functions for template variable parsing, mapping, validation,
+ * filtering, selection, and draft management.
  * This module contains no side effects and can be safely used in any context.
  */
+
+// =============================================================================
+// Filtering
+// =============================================================================
+export {
+  // Types
+  type TemplateFilterCriteria,
+  // Functions
+  filterTemplates,
+  filterManualDrafts,
+  filterByDraftIds,
+  filterExcludingIds,
+} from './filtering'
+
+// =============================================================================
+// Draft Validation
+// =============================================================================
+export {
+  // Types
+  type DraftSendState,
+  // Functions
+  validateManualDraft,
+  computeDraftSendStates,
+  canSendDraft,
+  getDraftBlockReason,
+} from './draft-validation'
+
+// =============================================================================
+// Selection
+// =============================================================================
+export {
+  // Functions
+  toggleTemplateSelection,
+  selectAllTemplates,
+  selectAllTemplatesByName,
+  selectAllGeneratedTemplates,
+  clearSelection,
+  pruneSelection,
+  removeFromSelection,
+  areAllSelected,
+  getSelectedAsArray,
+} from './selection'
 
 // =============================================================================
 // Variable Parser

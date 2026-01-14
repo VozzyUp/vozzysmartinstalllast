@@ -8,23 +8,14 @@ import { customFieldService } from '../services/customFieldService';
 import { getSupabaseBrowser } from '../lib/supabase';
 import { PAGINATION, CACHE } from '@/lib/constants';
 import { invalidateContacts, invalidateContact } from '@/lib/query-invalidation';
-
-const normalizeEmailForUpdate = (email?: string | null) => {
-  const trimmed = (email ?? '').trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-const sanitizeCustomFieldsForUpdate = (fields?: Record<string, any>) => {
-  if (!fields) return fields;
-  const out: Record<string, any> = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (value === undefined) continue;
-    if (value === null) continue;
-    if (typeof value === 'string' && value.trim() === '') continue;
-    out[key] = value;
-  }
-  return out;
-};
+import {
+  normalizeEmailForUpdate,
+  sanitizeCustomFieldsForUpdate,
+  toggleContactSelection,
+  toggleSelectAllContacts,
+  clearContactSelection,
+  selectAllContactsGlobal,
+} from '@/lib/business/contact';
 
 export const useContactsController = () => {
   const queryClient = useQueryClient();
@@ -248,30 +239,13 @@ export const useContactsController = () => {
 
   // --- Selection Logic ---
   const toggleSelect = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
+    setSelectedIds(toggleContactSelection(selectedIds, id));
   };
 
   const toggleSelectAll = () => {
     const pageIds = contacts.map(c => c.id);
-    if (pageIds.length === 0) return;
-
-    const allOnPageSelected = pageIds.every(id => selectedIds.has(id));
-    if (allOnPageSelected) {
-      const next = new Set(selectedIds);
-      pageIds.forEach(id => next.delete(id));
-      setSelectedIds(next);
-      return;
-    }
-
-    const next = new Set(selectedIds);
-    pageIds.forEach(id => next.add(id));
-    setSelectedIds(next);
+    const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+    setSelectedIds(toggleSelectAllContacts(selectedIds, pageIds, allOnPageSelected));
   };
 
   const selectAllGlobal = () => {
@@ -280,14 +254,14 @@ export const useContactsController = () => {
       status: statusFilter,
       tag: tagFilter,
     }).then((ids) => {
-      setSelectedIds(new Set(ids));
+      setSelectedIds(selectAllContactsGlobal(ids));
     }).catch((error: any) => {
       toast.error(error.message || 'Erro ao selecionar todos os contatos');
     });
   };
 
   const clearSelection = () => {
-    setSelectedIds(new Set());
+    setSelectedIds(clearContactSelection());
   };
 
   const isAllSelected = contacts.length > 0 && contacts.every(c => selectedIds.has(c.id));

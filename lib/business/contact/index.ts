@@ -48,3 +48,20 @@ export {
   getStatusColor,
   isBlockedStatus,
 } from './status'
+
+// Bulk operations
+export {
+  normalizeEmailForUpdate,
+  sanitizeCustomFieldsForUpdate,
+  toggleContactSelection,
+  toggleSelectAllContacts,
+  selectAllContactsGlobal,
+  clearContactSelection,
+} from './bulk-operations'
+
+// Filtering
+export {
+  matchesContactFilter,
+  filterContacts,
+  type ContactFilterCriteria,
+} from './filtering'
