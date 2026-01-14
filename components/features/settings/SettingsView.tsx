@@ -7,6 +7,7 @@ import { StatusCard } from './StatusCard';
 import { TurboConfigSection } from './TurboConfigSection';
 import { WebhookConfigSection } from './WebhookConfigSection';
 import { CalendarBookingPanel } from './CalendarBookingPanel';
+import { FlowEndpointPanel } from './FlowEndpointPanel';
 import { CredentialsForm } from './CredentialsForm';
 import type { SettingsViewProps } from './types';
 
@@ -166,6 +167,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             isSavingCalendarBooking={isSavingCalendarBooking}
           />
         )}
+
+        {/* Flow Endpoint (MiniApp Dinamico) */}
+        {settings.isConnected && <FlowEndpointPanel />}
 
         {/* Test Contact Section */}
         {settings.isConnected && (
