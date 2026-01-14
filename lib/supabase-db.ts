@@ -93,6 +93,8 @@ export const campaignDb = {
             lastSentAt: (row as any).last_sent_at ?? null,
             completedAt: row.completed_at,
             cancelledAt: (row as any).cancelled_at ?? null,
+            flowId: (row as any).flow_id ?? null,
+            flowName: (row as any).flow_name ?? null,
         }))
     },
 
@@ -148,6 +150,8 @@ export const campaignDb = {
                 firstDispatchAt: (row as any).first_dispatch_at ?? null,
                 lastSentAt: (row as any).last_sent_at ?? null,
                 completedAt: row.completed_at,
+                flowId: (row as any).flow_id ?? null,
+                flowName: (row as any).flow_name ?? null,
             })),
             total: count || 0,
         }
@@ -187,6 +191,8 @@ export const campaignDb = {
             lastSentAt: (data as any).last_sent_at ?? null,
             completedAt: data.completed_at,
             cancelledAt: (data as any).cancelled_at ?? null,
+            flowId: (data as any).flow_id ?? null,
+            flowName: (data as any).flow_name ?? null,
         }
     },
 
@@ -196,6 +202,8 @@ export const campaignDb = {
         recipients: number
         scheduledAt?: string
         templateVariables?: { header: string[], headerMediaId?: string, body: string[], buttons?: Record<string, string> }
+        flowId?: string | null
+        flowName?: string | null
     }): Promise<Campaign> => {
         const id = generateId()
         const now = new Date().toISOString()
@@ -224,6 +232,8 @@ export const campaignDb = {
                 scheduled_date: campaign.scheduledAt,
                 started_at: null,
                 cancelled_at: null,
+                flow_id: campaign.flowId ?? null,
+                flow_name: campaign.flowName ?? null,
             })
             .select()
             .single()
@@ -246,6 +256,8 @@ export const campaignDb = {
             scheduledAt: campaign.scheduledAt,
             startedAt: undefined,
             cancelledAt: undefined,
+            flowId: campaign.flowId ?? null,
+            flowName: campaign.flowName ?? null,
         }
     },
 
@@ -299,6 +311,8 @@ export const campaignDb = {
                 scheduled_date: null,
                 started_at: null,
                 completed_at: null,
+                flow_id: original.flowId ?? null,
+                flow_name: original.flowName ?? null,
             })
 
         if (error) throw error

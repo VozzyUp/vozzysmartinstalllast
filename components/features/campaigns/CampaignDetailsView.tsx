@@ -13,6 +13,7 @@ import {
   CampaignStatsGrid,
   CampaignPerformancePanel,
   CampaignTelemetryPanel,
+  CampaignFlowPanel,
   MessageLogTable,
   PreparingCampaignView,
   TemplatePreviewModal,
@@ -201,6 +202,9 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
         setFilterStatus={setFilterStatus}
         setIncludeReadInDelivered={setIncludeReadInDelivered}
       />
+
+      {/* Flow/MiniApp Panel - exibido apenas se a campanha usa Flow */}
+      <CampaignFlowPanel campaign={campaign} />
 
       {/* Performance Panel */}
       <CampaignPerformancePanel

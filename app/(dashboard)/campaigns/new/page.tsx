@@ -126,6 +126,28 @@ type TemplateVar = {
   required: boolean
 }
 
+/**
+ * Extrai informações do Flow de um template, se houver um botão do tipo FLOW
+ */
+const extractFlowFromTemplate = (template: Template | null): { flowId: string | null; flowName: string | null } => {
+  if (!template?.components) return { flowId: null, flowName: null }
+
+  for (const component of template.components) {
+    if (component.type === 'BUTTONS' && component.buttons) {
+      for (const button of component.buttons) {
+        if (button.type === 'FLOW' && button.flow_id) {
+          return {
+            flowId: button.flow_id,
+            flowName: button.text || null, // Nome do botão como fallback
+          }
+        }
+      }
+    }
+  }
+
+  return { flowId: null, flowName: null }
+}
+
 const fetchJson = async <T,>(url: string): Promise<T> => {
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) {
@@ -713,6 +735,9 @@ export default function CampaignsNewRealPage() {
           ? buildScheduledAt(scheduleDate, scheduleTime)
           : undefined
 
+      // Extrair Flow do template (se houver botão do tipo FLOW)
+      const { flowId, flowName } = extractFlowFromTemplate(selectedTemplate)
+
       const campaign = await campaignService.create({
         name: campaignName.trim(),
         templateName: selectedTemplate.name,
@@ -727,6 +752,8 @@ export default function CampaignsNewRealPage() {
         recipients: contacts.length,
         scheduledAt,
         templateVariables: buildTemplateVariables(),
+        flowId,
+        flowName,
       })
 
       router.push(`/campaigns/${campaign.id}`)

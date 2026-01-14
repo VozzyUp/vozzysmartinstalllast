@@ -17,6 +17,9 @@ interface CreateCampaignInput {
   selectedContactIds?: string[];  // For resume functionality
   scheduledAt?: string;           // ISO timestamp for scheduling
   templateVariables?: { header: string[], body: string[], buttons?: Record<string, string> };   // Meta API structure
+  // Flow/MiniApp fields
+  flowId?: string | null;
+  flowName?: string | null;
 }
 
 export interface CampaignListParams {
@@ -195,7 +198,7 @@ export const campaignService = {
   },
 
   create: async (input: CreateCampaignInput): Promise<Campaign> => {
-    const { name, templateName, recipients, selectedContacts, selectedContactIds, scheduledAt, templateVariables } = input;
+    const { name, templateName, recipients, selectedContacts, selectedContactIds, scheduledAt, templateVariables, flowId, flowName } = input;
 
     // 1. Create campaign in Database (source of truth) with contacts
     const response = await fetch('/api/campaigns', {
@@ -210,6 +213,8 @@ export const campaignService = {
         contacts: selectedContacts, // Pass contacts to be saved in campaign_contacts
         templateVariables, // Pass template variables to be saved in database
         status: scheduledAt ? CampaignStatus.SCHEDULED : CampaignStatus.SENDING,
+        flowId,   // Flow/MiniApp ID (se template usar Flow)
+        flowName, // Flow name para exibição
       }),
     });
 

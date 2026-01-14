@@ -122,6 +122,11 @@ export interface Campaign {
   // Contacts (for resume functionality and optimistic UI)
   selectedContactIds?: string[];
   pendingContacts?: { name: string; phone: string }[];  // For immediate "Pending" display
+  // Flow/MiniApp (para campanhas que usam Flow)
+  flowId?: string | null;
+  flowName?: string | null;
+  // Computed field (somente no detalhe da campanha)
+  submissionsCount?: number;
 }
 
 export interface Contact {

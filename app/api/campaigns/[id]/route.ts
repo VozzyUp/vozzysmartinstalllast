@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { campaignDb } from '@/lib/supabase-db'
+import { supabase } from '@/lib/supabase'
 
 // Force dynamic rendering (no caching)
 export const dynamic = 'force-dynamic'
@@ -24,14 +25,30 @@ export async function GET(request: Request, { params }: Params) {
       )
     }
 
-    // No cache for campaign data (needs real-time updates)
-    return NextResponse.json(campaign, {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
+    // Se a campanha tem Flow, buscar contagem de submissões
+    let submissionsCount = 0
+    if (campaign.flowId) {
+      const { count, error } = await supabase
+        .from('flow_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', id)
+
+      if (!error && count !== null) {
+        submissionsCount = count
       }
-    })
+    }
+
+    // No cache for campaign data (needs real-time updates)
+    return NextResponse.json(
+      { ...campaign, submissionsCount },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }
+      }
+    )
   } catch (error) {
     console.error('Failed to fetch campaign:', error)
     return NextResponse.json(

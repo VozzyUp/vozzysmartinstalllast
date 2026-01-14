@@ -7,6 +7,7 @@ export { CampaignHeader } from './CampaignHeader';
 export { CampaignStatsGrid } from './CampaignStatsGrid';
 export { CampaignPerformancePanel } from './CampaignPerformancePanel';
 export { CampaignTelemetryPanel } from './CampaignTelemetryPanel';
+export { CampaignFlowPanel } from './CampaignFlowPanel';
 export { MessageLogTable } from './MessageLogTable';
 
 // Types

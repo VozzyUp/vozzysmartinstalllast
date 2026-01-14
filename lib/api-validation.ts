@@ -84,6 +84,9 @@ export const CreateCampaignSchema = z.object({
       custom_fields: z.record(z.string(), z.any()).optional(),
     })
   ).optional(),
+  // Flow/MiniApp fields - para campanhas que usam template com Flow
+  flowId: z.string().optional().nullable(),
+  flowName: z.string().max(200).optional().nullable(),
 })
 
 export const UpdateCampaignSchema = z.object({

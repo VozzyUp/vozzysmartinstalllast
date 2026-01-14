@@ -552,7 +552,7 @@ export function DashboardShell({
     const navItems = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/campaigns', label: 'Campanhas', icon: MessageSquare },
-        { path: '/workflows', label: 'Workflow', icon: Workflow, badge: 'beta' },
+        { path: '/workflows', label: 'Workflow', icon: Workflow, badge: 'beta', disabled: true },
         { path: '/conversations', label: 'Conversas', icon: MessageCircle, hidden: true },
         { path: '/templates', label: 'Templates', icon: FileText },
         { path: '/contacts', label: 'Contatos', icon: Users },
@@ -612,24 +612,53 @@ export function DashboardShell({
                     <Zap className="text-white" size={18} fill="currentColor" aria-hidden="true" />
                 </div>
                 <nav className="flex flex-1 flex-col items-center gap-1.5 pt-1" aria-label="Menu principal">
-                    {navItems.map((item) => (
-                        <PrefetchLink
-                            key={item.path}
-                            href={item.path}
-                            className={`group relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-primary-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 ${pathname === item.path ? 'bg-white/5 text-white' : ''}`}
-                            onMouseEnter={() => prefetchRoute(item.path)}
-                            title={item.label}
-                            aria-label={item.label}
-                            aria-current={pathname === item.path ? 'page' : undefined}
-                        >
-                            <item.icon size={16} aria-hidden="true" />
-                            {item.badge && (
-                                <span className="absolute -right-1 -top-1 rounded-full bg-emerald-500/90 px-0.5 py-[1px] text-[7px] font-semibold uppercase tracking-wider text-black" aria-label={`${item.badge} - recurso em fase beta`}>
-                                    {item.badge}
+                    {navItems.map((item) => {
+                        const isDisabled = 'disabled' in item && item.disabled
+                        const baseClassName = `group relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-colors ${
+                            isDisabled
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'hover:border-white/10 hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-primary-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950'
+                        } ${pathname === item.path ? 'bg-white/5 text-white' : ''}`
+
+                        const content = (
+                            <>
+                                <item.icon size={16} aria-hidden="true" />
+                                {item.badge && (
+                                    <span className="absolute -right-1 -top-1 rounded-full bg-emerald-500/90 px-0.5 py-[1px] text-[7px] font-semibold uppercase tracking-wider text-black" aria-label={item.badge}>
+                                        {item.badge}
+                                    </span>
+                                )}
+                            </>
+                        )
+
+                        if (isDisabled) {
+                            return (
+                                <span
+                                    key={item.path}
+                                    className={baseClassName}
+                                    title={`${item.label} (${item.badge})`}
+                                    aria-label={`${item.label} - ${item.badge}`}
+                                    aria-disabled="true"
+                                >
+                                    {content}
                                 </span>
-                            )}
-                        </PrefetchLink>
-                    ))}
+                            )
+                        }
+
+                        return (
+                            <PrefetchLink
+                                key={item.path}
+                                href={item.path}
+                                onMouseEnter={() => prefetchRoute(item.path)}
+                                aria-current={pathname === item.path ? 'page' : undefined}
+                                className={baseClassName}
+                                title={item.label}
+                                aria-label={item.label}
+                            >
+                                {content}
+                            </PrefetchLink>
+                        )
+                    })}
                 </nav>
                 <button
                     onClick={handleLogout}
@@ -699,29 +728,55 @@ export function DashboardShell({
 
                     <div className="space-y-1 px-2">
                         <p className="px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Menu</p>
-                        {navItems.map((item) => (
-                            <PrefetchLink
-                                key={item.path}
-                                href={item.path}
-                                onClick={() => setIsMobileMenuOpen(false)}
-                                onMouseEnter={() => prefetchRoute(item.path)}
-                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mb-1 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500 ${pathname === item.path
-                                    ? 'bg-primary-500/10 text-primary-400 font-medium border border-primary-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-                                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                                    }`}
-                                aria-current={pathname === item.path ? 'page' : undefined}
-                            >
-                                <item.icon size={20} aria-hidden="true" />
-                                <span className="flex items-center gap-2">
-                                    {item.label}
-                                    {item.badge && (
-                                        <span className="rounded-full bg-emerald-500/20 px-1 py-[1px] text-[8px] font-semibold uppercase tracking-wider text-emerald-200 border border-emerald-500/30" aria-label={`${item.badge} - recurso em fase beta`}>
-                                            {item.badge}
-                                        </span>
-                                    )}
-                                </span>
-                            </PrefetchLink>
-                        ))}
+                        {navItems.map((item) => {
+                            const isDisabled = 'disabled' in item && item.disabled
+                            const baseClassName = `flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mb-1 ${
+                                isDisabled
+                                    ? 'opacity-50 cursor-not-allowed text-gray-500'
+                                    : pathname === item.path
+                                        ? 'bg-primary-500/10 text-primary-400 font-medium border border-primary-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                                        : 'text-gray-400 hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500'
+                            }`
+
+                            const content = (
+                                <>
+                                    <item.icon size={20} aria-hidden="true" />
+                                    <span className="flex items-center gap-2">
+                                        {item.label}
+                                        {item.badge && (
+                                            <span className="rounded-full bg-emerald-500/20 px-1.5 py-[1px] text-[8px] font-semibold uppercase tracking-wider text-emerald-200 border border-emerald-500/30" aria-label={item.badge}>
+                                                {item.badge}
+                                            </span>
+                                        )}
+                                    </span>
+                                </>
+                            )
+
+                            if (isDisabled) {
+                                return (
+                                    <span
+                                        key={item.path}
+                                        className={baseClassName}
+                                        aria-disabled="true"
+                                    >
+                                        {content}
+                                    </span>
+                                )
+                            }
+
+                            return (
+                                <PrefetchLink
+                                    key={item.path}
+                                    href={item.path}
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                    onMouseEnter={() => prefetchRoute(item.path)}
+                                    aria-current={pathname === item.path ? 'page' : undefined}
+                                    className={baseClassName}
+                                >
+                                    {content}
+                                </PrefetchLink>
+                            )
+                        })}
                     </div>
                 </nav>
 
