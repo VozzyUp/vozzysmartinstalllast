@@ -110,13 +110,33 @@ async function getAvailableDates(daysToShow: number = 14): Promise<Array<{ id: s
   const timeZone = config.timezone
   const today = startOfDay(toZonedTime(new Date(), timeZone))
 
+  // Debug: log config
+  const enabledDays = config.workingHours.filter(d => d.enabled).map(d => d.day)
+  console.log('[getAvailableDates] Config loaded:', { 
+    timezone: timeZone, 
+    enabledDays,
+    todayISO: today.toISOString(),
+  })
+
   const dates: Array<{ id: string; title: string }> = []
   let cursor = today
   let attempts = 0
   const maxAttempts = 60 // Evita loop infinito
 
   while (dates.length < daysToShow && attempts < maxAttempts) {
-    if (isWorkingDay(cursor, timeZone, config.workingHours)) {
+    const dayKey = getWeekdayKey(cursor, timeZone)
+    const isWorking = isWorkingDay(cursor, timeZone, config.workingHours)
+    
+    // Debug first 7 days
+    if (attempts < 7) {
+      console.log('[getAvailableDates] Day check:', {
+        date: format(cursor, 'yyyy-MM-dd'),
+        dayKey,
+        isWorking,
+      })
+    }
+    
+    if (isWorking) {
       const dateStr = format(cursor, 'yyyy-MM-dd')
       const displayStr = format(cursor, "EEE, d 'de' MMM", { locale: ptBR })
       dates.push({
@@ -128,6 +148,7 @@ async function getAvailableDates(daysToShow: number = 14): Promise<Array<{ id: s
     attempts++
   }
 
+  console.log('[getAvailableDates] Result:', dates.length, 'dates')
   return dates
 }
 
