@@ -48,13 +48,13 @@ export type FlowTemplate = {
 }
 
 // Observação importante:
-// - Estes templates são “sem endpoint” (sem data_exchange) para validar rápido.
+// - Templates simples não usam data_exchange.
 // - A Meta valida o Flow JSON no publish. Aqui guardamos um ponto de partida.
 
 export const FLOW_TEMPLATES: FlowTemplate[] = [
   {
     key: 'feedback_v1',
-    name: 'Feedback simples (sem endpoint)',
+    name: 'Feedback simples',
     description: 'Avaliação rápida com escolha única e comentário opcional.',
     flowJson: {
       version: '7.3',
@@ -106,7 +106,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'lead_interest_v1',
-    name: 'Interesse de compra (sem endpoint)',
+    name: 'Interesse de compra',
     description: 'Coleta nome, telefone e interesse principal.',
     flowJson: {
       version: '7.3',
@@ -170,7 +170,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'support_request_v1',
-    name: 'Suporte ao cliente (sem endpoint)',
+    name: 'Suporte ao cliente',
     description: 'Coleta assunto, prioridade e descrição do problema.',
     flowJson: {
       version: '7.3',
@@ -236,7 +236,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'pesquisa_rapida_v1',
-    name: 'Pesquisa rápida (sem endpoint)',
+    name: 'Pesquisa rápida',
     description: 'Perguntas curtas com múltipla escolha e observações.',
     flowJson: {
       version: '7.3',
@@ -290,7 +290,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'lead_cadastro_v1',
-    name: 'Lead / Cadastro (sem endpoint)',
+    name: 'Lead / Cadastro',
     description: 'Coleta nome, e-mail e interesse. Ideal para capturar lead rápido.',
     flowJson: {
       version: '7.3',
@@ -359,7 +359,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'agendamento_v1',
-    name: 'Agendamento (sem endpoint)',
+    name: 'Agendamento',
     description: 'Coleta serviço, data e horário. Sem validação de agenda ainda.',
     flowJson: {
       version: '7.3',
@@ -434,7 +434,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   },
   {
     key: 'pesquisa_nps_v1',
-    name: 'Pesquisa / NPS (sem endpoint)',
+    name: 'Pesquisa / NPS',
     description: 'Coleta score NPS (0-10) e comentário opcional.',
     flowJson: {
       version: '7.3',
@@ -497,7 +497,7 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   {
     key: 'agendamento_dinamico_v1',
     name: 'Agendamento (Google Calendar)',
-    description: 'Agendamento em tempo real com slots do Google Calendar. Requer endpoint configurado.',
+    description: 'Agendamento em tempo real com slots do Google Calendar.',
     isDynamic: true,
     dynamicConfig: getDefaultBookingFlowConfig(),
     // Form simplificado para o builder - coleta dados básicos do cliente

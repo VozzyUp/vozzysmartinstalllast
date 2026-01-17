@@ -43,6 +43,23 @@ function getRequestOrigin(request: NextRequest): string | null {
   return `${proto}://${host}`
 }
 
+const NGROK_API = 'http://127.0.0.1:4040/api'
+
+async function getNgrokPublicUrl(): Promise<string | null> {
+  try {
+    const res = await fetch(`${NGROK_API}/tunnels`, { method: 'GET' })
+    if (!res.ok) return null
+    const data = (await res.json()) as { tunnels?: Array<{ public_url?: string; proto?: string }> }
+    const tunnels = Array.isArray(data?.tunnels) ? data.tunnels : []
+    const https = tunnels.find((t) => String(t?.proto || '').toLowerCase() === 'https' && t.public_url)
+    if (https?.public_url) return https.public_url
+    const any = tunnels.find((t) => t.public_url)
+    return any?.public_url ? String(any.public_url) : null
+  } catch {
+    return null
+  }
+}
+
 function isMissingOnConflictConstraintError(err: any): boolean {
   const msg = String(err?.message || '').toLowerCase()
   // Postgres: "there is no unique or exclusion constraint matching the ON CONFLICT specification"
@@ -198,9 +215,6 @@ export async function POST(request: NextRequest) {
 
   const body = bodyText ? JSON.parse(bodyText) : {}
   const { campaignId, templateName, whatsappCredentials, templateVariables, flowId } = body
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H1',location:'app/api/campaign/dispatch/route.ts:205',message:'dispatch request received',data:{hasCampaignId:Boolean(campaignId),templateName:typeof templateName === 'string' ? templateName : null,hasFlowId:Boolean(flowId),trigger:body?.trigger ?? null,hasContacts:Array.isArray(body?.contacts),hasTemplateVariables:Boolean(templateVariables)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion agent log
   const trigger: 'schedule' | 'manual' | string | undefined = body?.trigger
   const scheduledAtFromJob: string | undefined = body?.scheduledAt
   let { contacts } = body
@@ -299,9 +313,6 @@ export async function POST(request: NextRequest) {
         Array.isArray(c?.buttons) &&
         c.buttons.some((b: any) => String(b?.type || '').toUpperCase() === 'FLOW'))
     : false
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H2',location:'app/api/campaign/dispatch/route.ts:301',message:'template loaded',data:{templateName:template?.name ?? null,hasFlowButton,componentsCount:Array.isArray(templateComponents)?templateComponents.length:null},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion agent log
 
   // Se o template tem HEADER de mídia, o envio precisa do "link" (URL) da mídia do template.
   // Alguns registros locais (ex.: recém-criados via builder) podem ter apenas handle "4::...".
@@ -857,9 +868,6 @@ export async function POST(request: NextRequest) {
   // =========================================================================
 
   if (flowId) {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre-fix',hypothesisId:'H3',location:'app/api/campaign/dispatch/route.ts:845',message:'flowId provided but flow engine disabled',data:{flowIdPresent:Boolean(flowId)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion agent log
     console.log('[Dispatch] Flow Engine is disabled in this template. Using legacy workflow.')
     // Fallthrough to legacy workflow
   }
@@ -920,16 +928,21 @@ export async function POST(request: NextRequest) {
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
       : null
     const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim()}` : null
+    const isDev = process.env.NODE_ENV === 'development'
+    const devNgrokUrl = isDev && process.env.QSTASH_TOKEN ? await getNgrokPublicUrl() : null
 
     // Regra de ouro:
     // - preview/dev: sempre preferir o origin do request para garantir que o workflow
     //   rode no MESMO deployment que gerou a fila (evita chamar produção por engano).
     // - produção: pode usar um domínio estável (NEXT_PUBLIC_APP_URL), caso exista.
-    const baseUrl = (vercelEnv === 'production')
-      ? (explicitAppUrl || productionUrl || vercelUrl || requestOrigin || 'http://localhost:3000')
-      : (requestOrigin || vercelUrl || explicitAppUrl || productionUrl || 'http://localhost:3000')
+    const baseUrl = devNgrokUrl
+      ? devNgrokUrl
+      : (vercelEnv === 'production')
+        ? (explicitAppUrl || productionUrl || vercelUrl || requestOrigin || 'http://localhost:3000')
+        : (requestOrigin || vercelUrl || explicitAppUrl || productionUrl || 'http://localhost:3000')
 
     const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
+
 
     console.log(`[Dispatch] Triggering workflow at: ${baseUrl}/api/campaign/workflow`)
     console.log(`[Dispatch] baseUrl debug: ${JSON.stringify({ vercelEnv, hasExplicitAppUrl: Boolean(explicitAppUrl), hasRequestOrigin: Boolean(requestOrigin), productionUrl: productionUrl || null, vercelUrl: vercelUrl || null })}`)
@@ -955,9 +968,10 @@ export async function POST(request: NextRequest) {
       accessToken,
     }
 
-    if (isLocalhost) {
+    const shouldBypassQstash = isLocalhost || (isDev && !process.env.QSTASH_TOKEN)
+    if (shouldBypassQstash) {
       // DEV: Call workflow endpoint directly (QStash can't reach localhost)
-      console.log('[Dispatch] Localhost detected - calling workflow directly (bypassing QStash)')
+      console.log('[Dispatch] Dev direct call - bypassing QStash')
 
       const response = await fetchWithTimeout(`${baseUrl}/api/campaign/workflow`, {
         method: 'POST',
@@ -982,10 +996,14 @@ export async function POST(request: NextRequest) {
 
       // PROD: Use QStash for reliable async execution
       const workflowClient = new Client({ token: process.env.QSTASH_TOKEN })
-      await workflowClient.trigger({
-        url: `${baseUrl}/api/campaign/workflow`,
-        body: workflowPayload,
-      })
+      try {
+        await workflowClient.trigger({
+          url: `${baseUrl}/api/campaign/workflow`,
+          body: workflowPayload,
+        })
+      } catch (err) {
+        throw err
+      }
     }
 
     return NextResponse.json({

@@ -10,7 +10,11 @@ interface EndpointStatus {
   endpointUrl: string | null;
 }
 
-export function FlowEndpointPanel() {
+interface FlowEndpointPanelProps {
+  devBaseUrl?: string | null;
+}
+
+export function FlowEndpointPanel({ devBaseUrl }: FlowEndpointPanelProps) {
   const [status, setStatus] = useState<EndpointStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -59,6 +63,9 @@ export function FlowEndpointPanel() {
     toast.success('Copiado!');
     setTimeout(() => setCopied(null), 2000);
   };
+
+  const devEndpointUrl = devBaseUrl ? `${devBaseUrl}/api/flows/endpoint` : null;
+  const resolvedEndpointUrl = devEndpointUrl || status?.endpointUrl || null;
 
   if (loading) {
     return (
@@ -121,7 +128,7 @@ export function FlowEndpointPanel() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-gray-400">URL do Endpoint</span>
               <button
-                onClick={() => status.endpointUrl && copyToClipboard(status.endpointUrl, 'url')}
+                onClick={() => resolvedEndpointUrl && copyToClipboard(resolvedEndpointUrl, 'url')}
                 className="text-xs text-purple-300 hover:text-purple-200 flex items-center gap-1"
               >
                 {copied === 'url' ? <Check size={12} /> : <Copy size={12} />}
@@ -129,12 +136,17 @@ export function FlowEndpointPanel() {
               </button>
             </div>
             <code className="text-sm text-white font-mono break-all">
-              {status.endpointUrl || 'URL não disponível'}
+              {resolvedEndpointUrl || 'URL não disponível'}
             </code>
-            {!status.endpointUrl ? (
+            {!resolvedEndpointUrl ? (
               <p className="mt-2 text-[11px] text-gray-500">
                 Dica: defina `NEXT_PUBLIC_APP_URL` no ambiente de produção ou gere as chaves no
                 próprio ambiente para registrar a URL correta.
+              </p>
+            ) : null}
+            {devEndpointUrl ? (
+              <p className="mt-2 text-[11px] text-emerald-300">
+                URL dev (ngrok) ativa nesta tela.
               </p>
             ) : null}
           </div>

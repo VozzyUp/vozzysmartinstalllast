@@ -90,11 +90,14 @@ export function TemplateImportDialog({
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-white">{tpl.name}</span>
-                  {tpl.isDynamic && (
-                    <span className="px-1.5 py-0.5 text-[10px] bg-purple-500/20 text-purple-300 rounded">
-                      Tempo real
-                    </span>
-                  )}
+                  <span
+                    className={
+                      'px-1.5 py-0.5 text-[10px] rounded ' +
+                      (tpl.isDynamic ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-gray-300')
+                    }
+                  >
+                    {tpl.isDynamic ? 'Dinâmico' : 'Simples'}
+                  </span>
                 </div>
                 <div className="text-xs text-gray-400">{tpl.description}</div>
               </div>

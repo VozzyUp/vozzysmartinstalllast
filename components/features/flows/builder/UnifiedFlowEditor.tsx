@@ -168,6 +168,38 @@ function setBlocksForScreen(screen: any, nextBlocks: any[]): any {
   }
 }
 
+function resolveDataBindingText(raw: unknown, screen: any): string {
+  const text = typeof raw === 'string' ? raw : ''
+  const match = text.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+  const key = match?.[1]
+  if (!key || !screen?.data || typeof screen.data !== 'object') return text
+  const entry = (screen.data as any)[key]
+  if (entry && typeof entry === 'object' && '__example__' in entry) {
+    const value = (entry as any).__example__
+    return value != null ? String(value) : text
+  }
+  return text
+}
+
+function resolveDataBindingList(raw: unknown, screen: any): any[] | null {
+  if (!screen?.data || typeof screen.data !== 'object') return null
+  if (Array.isArray(raw)) return raw
+  if (typeof raw !== 'string') return null
+  const match = raw.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+  const key = match?.[1]
+  if (!key) return null
+  const entry = (screen.data as any)[key]
+  if (!entry || typeof entry !== 'object') return null
+  const example = (entry as any).__example__
+  return Array.isArray(example) ? example : null
+}
+
+function getDataBindingKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const match = raw.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+  return match?.[1] || null
+}
+
 function guessActionType(screen: any): DynamicFlowActionType {
   const t = String(screen?.action?.type || '').trim()
   if (t === 'data_exchange' || t === 'navigate' || t === 'complete') return t
@@ -299,6 +331,14 @@ export function UnifiedFlowEditor(props: {
   const [spec, setSpec] = useState<DynamicFlowSpecV1>(initialSpec)
   const [dirty, setDirty] = useState(false)
   const [activeScreenId, setActiveScreenId] = useState<string>(initialSpec.screens[0]?.id || 'SCREEN_A')
+  // #region agent log
+  React.useEffect(() => {
+    const successScreen = spec.screens.find((s: any) => s.id === 'SUCCESS' || s.id?.includes('SUCCESS') || (s as any).success === true)
+    if (successScreen) {
+      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UnifiedFlowEditor:spec-change',message:'E1-success-screen',data:{screenId:successScreen.id,componentTypes:successScreen.components?.map((c:any)=>c?.type),componentTexts:successScreen.components?.map((c:any)=>c?.text?.substring?.(0,50))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{})
+    }
+  }, [spec])
+  // #endregion
   const lastAddedRef = useRef<string | null>(null)
   const previewEmitCountRef = useRef(0)
 
@@ -816,7 +856,38 @@ export function UnifiedFlowEditor(props: {
   const updateBlock = (idx: number, patch: any) => {
     const next = [...blocks]
     next[idx] = { ...next[idx], ...patch }
+    // #region agent log
+    try {
+      const ds = (next[idx] as any)?.['data-source']
+      const dsType = Array.isArray(ds) ? 'array' : typeof ds
+      const dsCount = Array.isArray(ds) ? ds.length : null
+      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H7',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:updateBlock',message:'block updated',data:{screenId:activeScreenId,idx,patchKeys:Object.keys(patch||{}),dataSourceType:dsType,dataSourceCount:dsCount,firstTitle:Array.isArray(ds)?String(ds[0]?.title||''):'',firstId:Array.isArray(ds)?String(ds[0]?.id||''):''},timestamp:Date.now()})}).catch(()=>{});
+    } catch {}
+    // #endregion agent log
     setActiveBlocks(next)
+  }
+
+  const updateBlockText = (idx: number, nextText: string) => {
+    const block = blocks[idx]
+    const raw = typeof block?.text === 'string' ? block.text : ''
+    const match = raw.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+    const key = match?.[1]
+    if (key && activeScreen?.data && typeof activeScreen.data === 'object') {
+      updateSpec((prev) => {
+        const screens = [...prev.screens]
+        const sIdx = screens.findIndex((s) => s.id === activeScreenId)
+        if (sIdx < 0) return prev
+        const current = screens[sIdx] as any
+        const data = { ...(current.data || {}) }
+        const entry = { ...(data[key] || {}) }
+        entry.__example__ = nextText
+        data[key] = entry
+        screens[sIdx] = { ...current, data }
+        return { ...prev, screens }
+      })
+      return
+    }
+    updateBlock(idx, { text: nextText })
   }
 
   const moveBlock = (idx: number, dir: 'up' | 'down') => {
@@ -1015,7 +1086,46 @@ export function UnifiedFlowEditor(props: {
     const isDate = type === 'CalendarPicker' || type === 'DatePicker'
     const isChoice = type === 'Dropdown' || type === 'RadioButtonsGroup' || type === 'CheckboxGroup'
 
-    const options = Array.isArray(block?.['data-source']) ? (block['data-source'] as any[]) : []
+    const dataSourceKey = getDataBindingKey(block?.['data-source'])
+    const isBoundList = !!dataSourceKey
+    const resolvedList = isBoundList ? resolveDataBindingList(block?.['data-source'], activeScreen) : null
+    const rawOptions = Array.isArray(block?.['data-source']) ? (block['data-source'] as any[]) : []
+    const options = isBoundList ? (resolvedList || []) : rawOptions
+    const baseOptions = options.length ? options : isBoundList ? [] : defaultOptions()
+
+    const updateBoundOptions = (nextOptions: any[]) => {
+      if (!dataSourceKey) return
+      const normalizedOptions = nextOptions
+        .map((opt) => ({
+          id: typeof opt?.id === 'string' ? opt.id : String(opt?.id ?? ''),
+          title: typeof opt?.title === 'string' ? opt.title : String(opt?.title ?? ''),
+        }))
+        .filter((opt) => opt.id.trim() && opt.title.trim())
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H1',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:updateBoundOptions',message:'apply dynamic options',data:{screenId:activeScreenId,dataSourceKey,rawCount:Array.isArray(nextOptions)?nextOptions.length:null,normalizedCount:normalizedOptions.length,hasResolvedList:!!resolvedList,isBoundList},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion agent log
+      updateSpec((prev) => {
+        const screens = [...prev.screens]
+        const sidx = screens.findIndex((s) => s.id === activeScreenId)
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H2',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:updateSpec',message:'updateSpec for dynamic options',data:{screenId:activeScreenId,sidx,hasScreen:sidx>=0},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+        if (sidx < 0) return prev
+        const current = screens[sidx] as any
+        const nextData = current.data && typeof current.data === 'object' ? { ...current.data } : {}
+        const currentEntry = nextData[dataSourceKey] && typeof nextData[dataSourceKey] === 'object' ? { ...nextData[dataSourceKey] } : {}
+        nextData[dataSourceKey] = { ...currentEntry, __example__: normalizedOptions }
+        screens[sidx] = { ...current, data: nextData }
+        const withServices =
+          dataSourceKey === 'services'
+            ? { ...prev, screens, services: normalizedOptions }
+            : { ...prev, screens }
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H3',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:updateSpec',message:'dynamic options applied to spec',data:{screenId:activeScreenId,dataSourceKey,exampleCount:Array.isArray((nextData as any)?.[dataSourceKey]?.__example__)?(nextData as any)[dataSourceKey].__example__.length:null,servicesLen:Array.isArray((withServices as any)?.services)?(withServices as any).services.length:null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion agent log
+        return withServices
+      })
+    }
 
     return (
       <div key={builderId} className="py-6">
@@ -1023,10 +1133,15 @@ export function UnifiedFlowEditor(props: {
           <div className="min-w-0 flex-1">
             {showText && (
               <div className="space-y-2">
-                <label className="block text-xs uppercase tracking-widest text-gray-500">Texto</label>
+                {/* #region agent log */}
+                {(() => { fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UnifiedFlowEditor:renderBlockEditor:showText',message:'B1-text-block',data:{type,blockKeys:Object.keys(block||{}),hasEditorLabel:!!block?.__editor_label,editorLabel:block?.__editor_label,rawText:String(block?.text||'').substring(0,50),visible:block?.visible},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{}); return null })()}
+                {/* #endregion */}
+                <label className="block text-xs uppercase tracking-widest text-gray-500">
+                  {block?.__editor_label || 'Texto'}
+                </label>
                 <Textarea
-                  value={String(block?.text || '')}
-                  onChange={(e) => updateBlock(idx, { text: e.target.value })}
+                  value={resolveDataBindingText(block?.text || '', activeScreen)}
+                  onChange={(e) => updateBlockText(idx, e.target.value)}
                   className="min-h-18"
                   placeholder="Digite o texto"
                   data-block-focus={builderId}
@@ -1059,7 +1174,7 @@ export function UnifiedFlowEditor(props: {
             {isOptIn && (
               <div className="mt-3 space-y-2">
                 <label className="block text-xs uppercase tracking-widest text-gray-500">Texto do opt-in</label>
-                <Textarea value={String(block?.text || '')} onChange={(e) => updateBlock(idx, { text: e.target.value })} />
+                <Textarea value={resolveDataBindingText(block?.text || '', activeScreen)} onChange={(e) => updateBlockText(idx, e.target.value)} />
               </div>
             )}
 
@@ -1072,10 +1187,17 @@ export function UnifiedFlowEditor(props: {
                     variant="secondary"
                     className="bg-zinc-950/40 border border-white/10 text-gray-200 hover:text-white hover:bg-white/5"
                     onClick={() => {
-                      const next = [...(options.length ? options : defaultOptions())]
+                      // #region agent log
+                      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H4',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:onAddOption',message:'add option clicked',data:{screenId:activeScreenId,hasResolvedList:!!resolvedList,baseCount:baseOptions.length,dataSourceKey,isBoundList},timestamp:Date.now()})}).catch(()=>{});
+                      // #endregion agent log
+                      const next = [...baseOptions]
                       const n = next.length + 1
                       next.push({ id: `opcao_${n}`, title: `Opção ${n}` })
-                      updateBlock(idx, { 'data-source': next })
+                      if (isBoundList) {
+                        updateBoundOptions(next)
+                      } else {
+                        updateBlock(idx, { 'data-source': next })
+                      }
                     }}
                   >
                     <Plus className="h-4 w-4" />
@@ -1083,14 +1205,21 @@ export function UnifiedFlowEditor(props: {
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {(options.length ? options : defaultOptions()).map((opt: any, oidx: number) => (
+                  {baseOptions.map((opt: any, oidx: number) => (
                     <div key={`${builderId}_${oidx}`} className="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
                       <Input
                         value={String(opt?.id || '')}
                         onChange={(e) => {
-                          const next = [...(options.length ? options : defaultOptions())]
+                          // #region agent log
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H5',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:onChangeOptionId',message:'option id change',data:{screenId:activeScreenId,hasResolvedList:!!resolvedList,dataSourceKey,oidx,input:e.target.value,prevId:String(opt?.id||''),isBoundList},timestamp:Date.now()})}).catch(()=>{});
+                          // #endregion agent log
+                          const next = [...baseOptions]
                           next[oidx] = { ...next[oidx], id: normalizeFlowFieldName(e.target.value) || next[oidx]?.id }
-                          updateBlock(idx, { 'data-source': next })
+                          if (isBoundList) {
+                            updateBoundOptions(next)
+                          } else {
+                            updateBlock(idx, { 'data-source': next })
+                          }
                         }}
                         className="font-mono text-xs"
                         placeholder="id"
@@ -1098,9 +1227,16 @@ export function UnifiedFlowEditor(props: {
                       <Input
                         value={String(opt?.title || '')}
                         onChange={(e) => {
-                          const next = [...(options.length ? options : defaultOptions())]
+                          // #region agent log
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H6',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:onChangeOptionTitle',message:'option title change',data:{screenId:activeScreenId,hasResolvedList:!!resolvedList,dataSourceKey,oidx,input:e.target.value,prevTitle:String(opt?.title||''),isBoundList},timestamp:Date.now()})}).catch(()=>{});
+                          // #endregion agent log
+                          const next = [...baseOptions]
                           next[oidx] = { ...next[oidx], title: e.target.value }
-                          updateBlock(idx, { 'data-source': next })
+                          if (isBoundList) {
+                            updateBoundOptions(next)
+                          } else {
+                            updateBlock(idx, { 'data-source': next })
+                          }
                         }}
                         placeholder="Título"
                       />
@@ -1109,8 +1245,12 @@ export function UnifiedFlowEditor(props: {
                         variant="outline"
                         className="border-white/10 bg-zinc-950/40 hover:bg-white/5"
                         onClick={() => {
-                          const next = (options.length ? options : defaultOptions()).filter((_: any, i: number) => i !== oidx)
-                          updateBlock(idx, { 'data-source': next })
+                          const next = baseOptions.filter((_: any, i: number) => i !== oidx)
+                          if (isBoundList) {
+                            updateBoundOptions(next)
+                          } else {
+                            updateBlock(idx, { 'data-source': next })
+                          }
                         }}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1118,6 +1258,9 @@ export function UnifiedFlowEditor(props: {
                     </div>
                   ))}
                 </div>
+                {resolvedList ? (
+                  <div className="text-[11px] text-gray-500">Opções dinâmicas (tempo real).</div>
+                ) : null}
               </div>
             )}
           </div>
@@ -1209,7 +1352,7 @@ export function UnifiedFlowEditor(props: {
         <TabsList className="bg-zinc-950/40 border border-white/10">
           {spec.screens.map((s) => (
             <TabsTrigger key={s.id} value={s.id} className="text-xs">
-              {String(s.title || s.id).slice(0, 18)}
+              {resolveDataBindingText(s.title || s.id, s).slice(0, 18)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -1219,7 +1362,10 @@ export function UnifiedFlowEditor(props: {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs uppercase tracking-widest text-gray-500 mb-2">Título da tela</label>
-                <Input value={String(activeScreen?.title || '')} onChange={(e) => patchActiveScreen({ title: e.target.value })} />
+                <Input
+                  value={resolveDataBindingText(activeScreen?.title || '', activeScreen)}
+                  onChange={(e) => patchScreenById(activeScreenId, { title: e.target.value })}
+                />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-zinc-950/40 px-3 py-2">
                 <div>
@@ -1286,9 +1432,16 @@ export function UnifiedFlowEditor(props: {
                   {spec.screens
                     .filter((x) => x.id !== activeScreenId)
                     .map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.title || x.id}
-                      </option>
+                      <React.Fragment key={x.id}>
+                        {/* #region agent log */}
+                        {(() => {
+                          const resolved = resolveDataBindingText(x.title || x.id, x)
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'paths-title',hypothesisId:'H9',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:nextScreenSelect',message:'next screen option label',data:{screenId:x.id,rawTitle:String(x.title||''),resolvedTitle:resolved},timestamp:Date.now()})}).catch(()=>{});
+                          return null
+                        })()}
+                        {/* #endregion agent log */}
+                        <option value={x.id}>{resolveDataBindingText(x.title || x.id, x)}</option>
+                      </React.Fragment>
                     ))}
                 </select>
               </div>
@@ -1347,9 +1500,16 @@ export function UnifiedFlowEditor(props: {
                   {spec.screens
                     .filter((x) => x.id !== activeScreenId)
                     .map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.title || x.id}
-                      </option>
+                      <React.Fragment key={x.id}>
+                        {/* #region agent log */}
+                        {(() => {
+                          const resolved = resolveDataBindingText(x.title || x.id, x)
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'paths-title',hypothesisId:'H10',location:'components/features/flows/builder/UnifiedFlowEditor.tsx:defaultNextSelect',message:'default next option label',data:{screenId:x.id,rawTitle:String(x.title||''),resolvedTitle:resolved},timestamp:Date.now()})}).catch(()=>{});
+                          return null
+                        })()}
+                        {/* #endregion agent log */}
+                      <option value={x.id}>{resolveDataBindingText(x.title || x.id, x)}</option>
+                      </React.Fragment>
                     ))}
                 </select>
                 {activeBranches.length > 0 ? (

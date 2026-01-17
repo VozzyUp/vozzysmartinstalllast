@@ -449,6 +449,14 @@ function renderDropdown(
   const name = s(comp.name, `dropdown_${idx}`)
   const value = values[name] ?? ''
   const selected = !!editorKey && !!selectedKey && editorKey === selectedKey
+  // #region agent log
+  try {
+    const ds = (comp as any)?.['data-source']
+    const dsType = Array.isArray(ds) ? 'array' : typeof ds
+    const dsCount = Array.isArray(ds) ? ds.length : null
+    fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'options-edit',hypothesisId:'H8',location:'components/ui/MetaFlowPreview.tsx:renderDropdown',message:'preview dropdown options',data:{name,dsType,dsCount,optionsCount:options.length,firstTitle:options[0]?.title?String(options[0].title):'',firstId:options[0]?.id?String(options[0].id):''},timestamp:Date.now()})}).catch(()=>{});
+  } catch {}
+  // #endregion agent log
   return (
     <div key={`dd_${idx}`} className="space-y-2">
       <div

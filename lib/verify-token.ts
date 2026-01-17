@@ -4,6 +4,8 @@ interface VerifyTokenOptions {
     readonly?: boolean
 }
 
+let inMemoryToken: string | null = null
+
 /**
  * Get or generate webhook verify token
  * 
@@ -27,16 +29,25 @@ export async function getVerifyToken(options: VerifyTokenOptions = {}): Promise<
             return process.env.WEBHOOK_VERIFY_TOKEN.trim()
         }
 
-        // 3. If Read-Only, stop here
+        // 3. If Read-Only, stop here (use in-memory if available)
         if (readonly) {
+            if (inMemoryToken) {
+                console.log('ℹ️ getVerifyToken: Using in-memory fallback (readonly)')
+                return inMemoryToken
+            }
             console.warn('⚠️ getVerifyToken: Token missing and Read-Only. Failing.')
             return 'token-not-found-readonly'
         }
 
-        // 4. Generate New Token
+        // 4. Generate New Token (fallback to memory if DB unavailable)
         const newToken = crypto.randomUUID()
+        inMemoryToken = newToken
         console.log('🔑 getVerifyToken: Generating new:', newToken)
-        await settingsDb.set('webhook_verify_token', newToken)
+        try {
+            await settingsDb.set('webhook_verify_token', newToken)
+        } catch (err) {
+            console.warn('⚠️ getVerifyToken: Failed to persist token, using in-memory fallback.')
+        }
 
         // Safety: Verify it was written (Consistency check)
         const check = await settingsDb.get('webhook_verify_token')
@@ -48,6 +59,7 @@ export async function getVerifyToken(options: VerifyTokenOptions = {}): Promise<
 
     } catch (err) {
         console.error('💥 getVerifyToken Error:', err)
+        if (inMemoryToken) return inMemoryToken
         return process.env.WEBHOOK_VERIFY_TOKEN?.trim() || 'error-retrieving-token'
     }
 }

@@ -197,8 +197,10 @@ export default function FlowBuilderEditorPage({
       const dynamicJson = generateDynamicFlowJson(dynamicSpec)
       try {
         const screens = Array.isArray((dynamicJson as any)?.screens) ? (dynamicJson as any).screens : []
+        const successScreen = screens.find((s:any) => s?.id === 'SUCCESS')
+        const successChildren = successScreen?.layout?.children || []
         // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'template-apply',hypothesisId:'T2',location:'app/(dashboard)/flows/builder/[id]/page.tsx:handleApplyTemplate',message:'apply template computed json',data:{tplKey:tpl.key,screenCount:screens.length,firstScreenId:screens.length?String(screens[0]?.id||''):null},timestamp:Date.now()})}).catch(()=>{});
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'template-apply',hypothesisId:'T2',location:'app/(dashboard)/flows/builder/[id]/page.tsx:handleApplyTemplate',message:'apply template computed json',data:{tplKey:tpl.key,screenCount:screens.length,firstScreenId:screens.length?String(screens[0]?.id||''):null,successChildTypes:successChildren.map((c:any)=>c?.type),successChildTexts:successChildren.filter((c:any)=>c?.text).map((c:any)=>c?.text?.substring?.(0,50))},timestamp:Date.now()})}).catch(()=>{});
         // #endregion agent log
       } catch {}
       setFormPreviewJson(dynamicJson)
@@ -464,11 +466,15 @@ export default function FlowBuilderEditorPage({
     const title = typeof payload?.confirmation_title === 'string' ? payload.confirmation_title : ''
     const footer = typeof payload?.confirmation_footer === 'string' ? payload.confirmation_footer : ''
     const fields = Array.isArray(payload?.confirmation_fields) ? (payload.confirmation_fields as any[]).filter((x) => typeof x === 'string') : null
-    return { sendDisabled, title, footer, fields }
+    const labels =
+      payload?.confirmation_labels && typeof payload.confirmation_labels === 'object' && !Array.isArray(payload.confirmation_labels)
+        ? (payload.confirmation_labels as Record<string, string>)
+        : null
+    return { sendDisabled, title, footer, fields, labels }
   }, [finalScreenId, previewDynamicSpec])
 
   const applyConfirmationPatch = React.useCallback(
-    (patch: { enabled?: boolean; title?: string; footer?: string; fields?: string[] | null }) => {
+    (patch: { enabled?: boolean; title?: string; footer?: string; fields?: string[] | null; labels?: Record<string, string> | null }) => {
       if (!previewDynamicSpec || !finalScreenId) return
       const nextSpec: DynamicFlowSpecV1 = {
         ...(previewDynamicSpec as any),
@@ -498,6 +504,17 @@ export default function FlowBuilderEditorPage({
             const list = Array.isArray(patch.fields) ? patch.fields.filter(Boolean) : []
             if (list.length) (basePayload as any).confirmation_fields = list
             else delete (basePayload as any).confirmation_fields
+          }
+          if (patch.labels !== undefined) {
+            const labels = patch.labels && typeof patch.labels === 'object' ? patch.labels : {}
+            const cleaned: Record<string, string> = {}
+            for (const [k, v] of Object.entries(labels)) {
+              const key = String(k || '').trim()
+              const val = String(v || '').trim()
+              if (key && val) cleaned[key] = val
+            }
+            if (Object.keys(cleaned).length) (basePayload as any).confirmation_labels = cleaned
+            else delete (basePayload as any).confirmation_labels
           }
 
           return { ...s, terminal: true, action: { ...currentAction, type: 'complete', payload: basePayload } }
@@ -617,12 +634,6 @@ export default function FlowBuilderEditorPage({
                           : 'border-white/10 bg-zinc-900/60 hover:bg-white/5'
                       }`}
                     >
-                      {startMode === 'ai' ? (
-                        <div className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
-                          <Check className="h-3 w-3" />
-                          Selecionado
-                        </div>
-                      ) : null}
                       <div className="flex items-center gap-2 text-white font-semibold">
                         <Wand2 className="h-4 w-4" />
                         Criar com IA
@@ -645,12 +656,6 @@ export default function FlowBuilderEditorPage({
                           : 'border-white/10 bg-zinc-900/60 hover:bg-white/5'
                       }`}
                     >
-                      {startMode === 'template' ? (
-                        <div className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
-                          <Check className="h-3 w-3" />
-                          Selecionado
-                        </div>
-                      ) : null}
                       <div className="flex items-center gap-2 text-white font-semibold">
                         <LayoutTemplate className="h-4 w-4" />
                         Usar modelo pronto
@@ -674,12 +679,6 @@ export default function FlowBuilderEditorPage({
                           : 'border-white/10 bg-zinc-900/60 hover:bg-white/5'
                       }`}
                     >
-                      {startMode === 'zero' ? (
-                        <div className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
-                          <Check className="h-3 w-3" />
-                          Selecionado
-                        </div>
-                      ) : null}
                       <div className="flex items-center gap-2 text-white font-semibold">
                         <PenSquare className="h-4 w-4" />
                         Criar do zero
@@ -768,7 +767,19 @@ export default function FlowBuilderEditorPage({
                                 : 'border-white/10 bg-zinc-900/60 text-gray-300 hover:bg-white/5'
                             }`}
                           >
-                            <div className="text-sm font-semibold">{tpl.name}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-semibold">{tpl.name}</div>
+                              <span
+                                className={
+                                  'px-1.5 py-0.5 text-[10px] rounded ' +
+                                  (tpl.isDynamic
+                                    ? 'bg-emerald-500/20 text-emerald-200'
+                                    : 'bg-white/10 text-gray-300')
+                                }
+                              >
+                                {tpl.isDynamic ? 'Dinâmico' : 'Simples'}
+                              </span>
+                            </div>
                             <div className="mt-1 text-xs text-gray-400">{tpl.description}</div>
                           </button>
                         ))}
@@ -906,6 +917,7 @@ export default function FlowBuilderEditorPage({
                         <div className="rounded-xl border border-white/10 bg-zinc-950/40 p-3 max-h-56 overflow-auto space-y-2">
                           {collectFieldCatalog(previewDynamicSpec).map((f) => {
                             const selected = confirmationState?.fields ? confirmationState.fields.includes(f.name) : true
+                            const customLabel = confirmationState?.labels ? confirmationState.labels[f.name] : ''
                             return (
                               <label key={f.name} className="flex items-center gap-3 text-sm text-gray-200">
                                 <Checkbox
@@ -918,8 +930,32 @@ export default function FlowBuilderEditorPage({
                                     applyConfirmationPatch({ fields: next })
                                   }}
                                 />
-                                <span className="truncate">{f.label}</span>
-                                <span className="ml-auto text-[11px] text-gray-500">{f.name}</span>
+                                <div className="flex-1 min-w-0">
+                                  <Input
+                                    value={(customLabel || f.label) as string}
+                                    onChange={(e) => {
+                                      const base = confirmationState?.labels ? { ...confirmationState.labels } : {}
+                                      const nextValue = e.target.value.trim()
+                                      if (!nextValue || nextValue === f.label) delete base[f.name]
+                                      else base[f.name] = nextValue
+                                      applyConfirmationPatch({ labels: base })
+                                    }}
+                                    className="h-9"
+                                  />
+                                  <div className="text-[11px] text-gray-500 mt-1">{f.name}</div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-9 border-white/10 bg-zinc-950/40 hover:bg-white/5 text-xs"
+                                  onClick={() => {
+                                    const base = confirmationState?.labels ? { ...confirmationState.labels } : {}
+                                    delete base[f.name]
+                                    applyConfirmationPatch({ labels: base })
+                                  }}
+                                >
+                                  Resetar
+                                </Button>
                               </label>
                             )
                           })}

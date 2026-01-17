@@ -13,6 +13,7 @@ import {
   type GoogleCalendarConfig,
 } from '@/lib/google-calendar'
 import { settingsDb } from '@/lib/supabase-db'
+import { supabase } from '@/lib/supabase'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import {
   createSuccessResponse,
@@ -97,6 +98,272 @@ async function getCalendarBookingConfig(): Promise<CalendarBookingConfig> {
     return { ...DEFAULT_CONFIG, ...parsed }
   } catch {
     return DEFAULT_CONFIG
+  }
+}
+
+async function getBookingServices(fallback?: ServiceType[]): Promise<ServiceType[]> {
+  // #region agent log
+  console.log('[getBookingServices] start', { supabaseConfigured: isSupabaseConfigured(), hasFallback: !!fallback?.length })
+  // #endregion
+  if (!isSupabaseConfigured()) {
+    console.log('[getBookingServices] Supabase not configured, using defaults')
+    return DEFAULT_SERVICES
+  }
+  const raw = await settingsDb.get('booking_services')
+  // #region agent log
+  console.log('[getBookingServices] from DB:', { hasRaw: !!raw, rawLength: raw?.length, rawPreview: raw?.substring(0, 100) })
+  // #endregion
+  if (!raw) {
+    console.log('[getBookingServices] No data in DB, using defaults')
+    return DEFAULT_SERVICES
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      console.log('[getBookingServices] Parsed is not array, using defaults')
+      return DEFAULT_SERVICES
+    }
+    const normalized = parsed
+      .map((opt) => ({
+        id: typeof opt?.id === 'string' ? opt.id.trim() : String(opt?.id ?? '').trim(),
+        title: typeof opt?.title === 'string' ? opt.title.trim() : String(opt?.title ?? '').trim(),
+        ...(typeof opt?.durationMinutes === 'number' ? { durationMinutes: opt.durationMinutes } : {}),
+      }))
+      .filter((opt) => opt.id && opt.title)
+    // #region agent log
+    console.log('[getBookingServices] normalized:', { count: normalized.length, first: normalized[0] })
+    // #endregion
+    return normalized.length ? normalized : (fallback?.length ? fallback : DEFAULT_SERVICES)
+  } catch (e) {
+    console.error('[getBookingServices] Parse error:', e)
+    return fallback?.length ? fallback : DEFAULT_SERVICES
+  }
+}
+
+function extractMetaFlowIdFromToken(flowToken?: string | null): string | null {
+  const raw = String(flowToken || '').trim()
+  if (!raw) return null
+  const m = raw.match(/^smartzap:(\d{6,25}):/)
+  return m?.[1] || null
+}
+
+async function loadFlowJsonFromToken(flowToken?: string | null): Promise<Record<string, unknown> | null> {
+  if (!isSupabaseConfigured()) return null
+  const metaFlowId = extractMetaFlowIdFromToken(flowToken)
+  if (!metaFlowId) return null
+  const { data, error } = await supabase
+    .from('flows')
+    .select('flow_json')
+    .eq('meta_flow_id', metaFlowId)
+    .limit(1)
+  if (error) return null
+  const row = Array.isArray(data) ? data[0] : (data as any)
+  if (!row?.flow_json) return null
+  if (typeof row.flow_json === 'object') return row.flow_json as Record<string, unknown>
+  if (typeof row.flow_json === 'string') {
+    try {
+      const parsed = JSON.parse(row.flow_json)
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+function getDataBindingKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const m = raw.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+  return m?.[1] || null
+}
+
+function getFormBindingKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const m = raw.match(/^\$\{form\.([a-zA-Z0-9_]+)\}$/)
+  return m?.[1] || null
+}
+
+type BookingRuntimeKeys = {
+  startScreenId: string
+  timeScreenId: string
+  customerScreenId: string
+  serviceField: string | null
+  dateField: string | null
+  slotField: string | null
+  payloadKeyByField: Record<string, string>
+  dataKeys: {
+    services?: string
+    dates?: string
+    slots?: string
+    minDate?: string
+    maxDate?: string
+    includeDays?: string
+    unavailableDates?: string
+    startTitle?: string
+    startSubtitle?: string
+    timeTitle?: string
+    timeSubtitle?: string
+    customerTitle?: string
+    customerSubtitle?: string
+  }
+  examples: {
+    startTitle?: string
+    startSubtitle?: string
+    timeTitle?: string
+    timeSubtitle?: string
+    customerTitle?: string
+    customerSubtitle?: string
+  }
+  fallbackServices?: ServiceType[]
+}
+
+function collectComponents(nodes: any[] | undefined | null, out: any[]) {
+  if (!Array.isArray(nodes)) return
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') continue
+    out.push(node)
+    if (Array.isArray(node.children)) {
+      collectComponents(node.children, out)
+    }
+  }
+}
+
+function extractScreenComponents(screen: any): any[] {
+  const out: any[] = []
+  const layoutChildren = Array.isArray(screen?.layout?.children) ? screen.layout.children : []
+  collectComponents(layoutChildren, out)
+  return out
+}
+
+function extractPayloadKeyMap(screen: any): Record<string, string> {
+  const comps = extractScreenComponents(screen)
+  const footer = comps.find((c) => c?.type === 'Footer' && c?.['on-click-action']?.name === 'data_exchange')
+  const payload = footer?.['on-click-action']?.payload
+  if (!payload || typeof payload !== 'object') return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    const field = getFormBindingKey(value)
+    if (field) out[field] = key
+  }
+  return out
+}
+
+function extractExample(screen: any, key?: string): string | undefined {
+  if (!key) return undefined
+  const data = screen?.data
+  if (!data || typeof data !== 'object') return undefined
+  const entry = (data as any)[key]
+  if (!entry || typeof entry !== 'object') return undefined
+  const example = (entry as any).__example__
+  return typeof example === 'string' ? example : undefined
+}
+
+function extractServiceOptionsFromFlowJson(flowJson: any): ServiceType[] | null {
+  const screens = Array.isArray(flowJson?.screens) ? flowJson.screens : []
+  for (const screen of screens) {
+    const data = screen?.data
+    if (!data || typeof data !== 'object') continue
+    const servicesEntry = (data as any).services
+    const example = servicesEntry && typeof servicesEntry === 'object' ? (servicesEntry as any).__example__ : null
+    if (Array.isArray(example)) {
+      const normalized = example
+        .map((opt) => ({
+          id: typeof opt?.id === 'string' ? opt.id.trim() : String(opt?.id ?? '').trim(),
+          title: typeof opt?.title === 'string' ? opt.title.trim() : String(opt?.title ?? '').trim(),
+          ...(typeof opt?.durationMinutes === 'number' ? { durationMinutes: opt.durationMinutes } : {}),
+        }))
+        .filter((opt) => opt.id && opt.title)
+      return normalized.length ? normalized : null
+    }
+  }
+  return null
+}
+
+function extractBookingRuntime(flowJson: any): BookingRuntimeKeys | null {
+  const screens = Array.isArray(flowJson?.screens) ? flowJson.screens : []
+  if (!screens.length) return null
+
+  const screenInfo = screens.map((screen: any) => {
+    const comps = extractScreenComponents(screen)
+    const payloadMap = extractPayloadKeyMap(screen)
+    return { screen, comps, payloadMap }
+  })
+
+  const isChoice = (c: any) => c?.type === 'Dropdown' || c?.type === 'RadioButtonsGroup' || c?.type === 'CheckboxGroup'
+  const isDate = (c: any) => c?.type === 'CalendarPicker' || c?.type === 'DatePicker'
+
+  const startInfo =
+    screenInfo.find(({ comps }) =>
+      comps.some((c) => isChoice(c) && getDataBindingKey(c?.['data-source']) === 'services')
+    ) ||
+    screenInfo.find(({ comps }) => comps.some((c) => isChoice(c) && !!getDataBindingKey(c?.['data-source'])))
+
+  const timeInfo =
+    screenInfo.find(({ comps }) => comps.some((c) => isChoice(c) && getDataBindingKey(c?.['data-source']) === 'slots')) ||
+    screenInfo.find(({ comps }) => comps.some((c) => isChoice(c) && !!getDataBindingKey(c?.['data-source'])))
+
+  const customerInfo =
+    screenInfo.find(({ comps }) => comps.some((c) => c?.type === 'TextInput' || c?.type === 'TextArea')) || null
+
+  if (!startInfo || !timeInfo || !customerInfo) return null
+
+  const startScreen = startInfo.screen
+  const timeScreen = timeInfo.screen
+  const customerScreen = customerInfo.screen
+
+  const startChoice = startInfo.comps.find((c) => isChoice(c) && !!getDataBindingKey(c?.['data-source']))
+  const timeChoice = timeInfo.comps.find((c) => isChoice(c) && !!getDataBindingKey(c?.['data-source']))
+  const dateInput =
+    startInfo.comps.find((c) => isDate(c)) ||
+    startInfo.comps.find((c) => isChoice(c) && getDataBindingKey(c?.['data-source']) === 'dates') ||
+    null
+
+  const serviceField = startChoice?.name ? String(startChoice.name) : null
+  const dateField = dateInput?.name ? String(dateInput.name) : null
+  const slotField = timeChoice?.name ? String(timeChoice.name) : null
+
+  const payloadKeyByField: Record<string, string> = {
+    ...startInfo.payloadMap,
+    ...timeInfo.payloadMap,
+    ...customerInfo.payloadMap,
+  }
+
+  const dataKeys = {
+    services: getDataBindingKey(startChoice?.['data-source']) || 'services',
+    dates: getDataBindingKey(startInfo.comps.find((c) => getDataBindingKey(c?.['data-source']) === 'dates')?.['data-source']) || 'dates',
+    slots: getDataBindingKey(timeChoice?.['data-source']) || 'slots',
+    minDate: getDataBindingKey((dateInput as any)?.['min-date']) || 'min_date',
+    maxDate: getDataBindingKey((dateInput as any)?.['max-date']) || 'max_date',
+    includeDays: getDataBindingKey((dateInput as any)?.['include-days']) || 'include_days',
+    unavailableDates: getDataBindingKey((dateInput as any)?.['unavailable-dates']) || 'unavailable_dates',
+    startTitle: getDataBindingKey(startScreen?.title) || 'title',
+    startSubtitle: getDataBindingKey(startInfo.comps.find((c) => c?.type === 'TextSubheading')?.text) || 'subtitle',
+    timeTitle: getDataBindingKey(timeScreen?.title) || 'title',
+    timeSubtitle: getDataBindingKey(timeInfo.comps.find((c) => c?.type === 'TextSubheading')?.text) || 'subtitle',
+    customerTitle: getDataBindingKey(customerScreen?.title) || 'title',
+    customerSubtitle: getDataBindingKey(customerInfo.comps.find((c) => c?.type === 'TextSubheading')?.text) || 'subtitle',
+  }
+
+  const examples = {
+    startTitle: extractExample(startScreen, dataKeys.startTitle),
+    startSubtitle: extractExample(startScreen, dataKeys.startSubtitle),
+    timeTitle: extractExample(timeScreen, dataKeys.timeTitle),
+    timeSubtitle: extractExample(timeScreen, dataKeys.timeSubtitle),
+    customerTitle: extractExample(customerScreen, dataKeys.customerTitle),
+    customerSubtitle: extractExample(customerScreen, dataKeys.customerSubtitle),
+  }
+
+  return {
+    startScreenId: String(startScreen?.id || 'BOOKING_START'),
+    timeScreenId: String(timeScreen?.id || 'SELECT_TIME'),
+    customerScreenId: String(customerScreen?.id || 'CUSTOMER_INFO'),
+    serviceField,
+    dateField,
+    slotField,
+    payloadKeyByField,
+    dataKeys,
+    examples,
+    fallbackServices: extractServiceOptionsFromFlowJson(flowJson) || undefined,
   }
 }
 
@@ -346,7 +613,8 @@ async function createBookingEvent(params: {
   const slotStart = new Date(params.slotIso)
   const slotEnd = new Date(slotStart.getTime() + config.slotDurationMinutes * 60 * 1000)
 
-  const serviceInfo = DEFAULT_SERVICES.find((s) => s.id === params.service)
+  const services = await getBookingServices()
+  const serviceInfo = services.find((s) => s.id === params.service)
   const serviceName = serviceInfo?.title || params.service
 
   const event = await createEvent({
@@ -384,7 +652,7 @@ async function createBookingEvent(params: {
 export async function handleFlowAction(
   request: FlowDataExchangeRequest
 ): Promise<Record<string, unknown>> {
-  const { action, screen, data } = request
+  const { action, screen, data, flow_token: flowToken } = request
 
   console.log('[flow-handler] 📋 Processing:', { action, screen, dataKeys: data ? Object.keys(data) : [] })
 
@@ -399,17 +667,20 @@ export async function handleFlowAction(
   }
 
   let result: Record<string, unknown>
+  const flowJson = await loadFlowJsonFromToken(flowToken)
+  const runtime = flowJson ? extractBookingRuntime(flowJson) : null
+
   switch (action) {
     case 'INIT':
-      result = await handleInit()
+      result = await handleInit(runtime)
       break
 
     case 'data_exchange':
-      result = await handleDataExchange(screen || '', data || {})
+      result = await handleDataExchange(screen || '', data || {}, runtime)
       break
 
     case 'BACK':
-      result = await handleBack(screen || '', data || {})
+      result = await handleBack(screen || '', data || {}, runtime)
       break
 
     default:
@@ -425,24 +696,36 @@ export async function handleFlowAction(
  * INIT - Primeira tela do flow
  * Retorna lista de servicos e datas disponiveis
  */
-async function handleInit(): Promise<Record<string, unknown>> {
+async function handleInit(runtime?: BookingRuntimeKeys | null): Promise<Record<string, unknown>> {
   try {
     const calendarPicker = await getCalendarPickerData()
     const dates = await getAvailableDates()
+    const services = await getBookingServices(runtime?.fallbackServices)
+    const keys = runtime?.dataKeys
 
-    return createSuccessResponse('BOOKING_START', {
-      services: DEFAULT_SERVICES.map((s) => ({ id: s.id, title: s.title })),
-      dates,
-      min_date: calendarPicker.minDate,
-      max_date: calendarPicker.maxDate,
-      include_days: calendarPicker.includeDays,
-      unavailable_dates: calendarPicker.unavailableDates,
-      // Mensagens de UI
-      title: 'Agendar Atendimento',
-      subtitle: 'Escolha o tipo de atendimento e a data desejada',
+    // #region agent log
+    console.log('[handleInit] services loaded:', { count: services.length, first: services[0], fallbackCount: runtime?.fallbackServices?.length })
+    // #endregion
+
+    const dataPayload: Record<string, unknown> = {
+      [keys?.services || 'services']: services.map((s) => ({ id: s.id, title: s.title })),
+      [keys?.dates || 'dates']: dates,
+      [keys?.minDate || 'min_date']: calendarPicker.minDate,
+      [keys?.maxDate || 'max_date']: calendarPicker.maxDate,
+      [keys?.includeDays || 'include_days']: calendarPicker.includeDays,
+      [keys?.unavailableDates || 'unavailable_dates']: calendarPicker.unavailableDates,
+      [keys?.startTitle || 'title']: runtime?.examples?.startTitle || 'Agendar Atendimento',
+      [keys?.startSubtitle || 'subtitle']: runtime?.examples?.startSubtitle || 'Escolha o tipo de atendimento e a data desejada',
       error_message: '',
       has_error: false,
-    })
+    }
+
+    // #region agent log
+    const servicesKey = keys?.services || 'services'
+    console.log('[handleInit] dataPayload services:', { key: servicesKey, count: (dataPayload[servicesKey] as any[])?.length })
+    // #endregion
+
+    return createSuccessResponse(runtime?.startScreenId || 'BOOKING_START', dataPayload)
   } catch (error) {
     console.error('[flow-handler] INIT error:', error)
     return createErrorResponse('Erro ao carregar opcoes de agendamento')
@@ -454,14 +737,27 @@ async function handleInit(): Promise<Record<string, unknown>> {
  */
 async function handleDataExchange(
   screen: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  runtime?: BookingRuntimeKeys | null
 ): Promise<Record<string, unknown>> {
   try {
+    const startScreenId = runtime?.startScreenId || 'BOOKING_START'
+    const timeScreenId = runtime?.timeScreenId || 'SELECT_TIME'
+    const customerScreenId = runtime?.customerScreenId || 'CUSTOMER_INFO'
+    const keys = runtime?.dataKeys
+    const serviceField = runtime?.serviceField || 'selected_service'
+    const dateField = runtime?.dateField || 'selected_date'
+    const slotField = runtime?.slotField || 'selected_slot'
+    const serviceKey = runtime?.payloadKeyByField?.[serviceField] || serviceField
+    const dateKey = runtime?.payloadKeyByField?.[dateField] || dateField
+    const slotKey = runtime?.payloadKeyByField?.[slotField] || slotField
+
     switch (screen) {
       // Usuario selecionou servico e data, buscar horarios
-      case 'BOOKING_START': {
-        const selectedDate = data.selected_date as string
-        const selectedService = data.selected_service as string
+      case 'BOOKING_START':
+      case startScreenId: {
+        const selectedDate = data[dateKey] as string
+        const selectedService = data[serviceKey] as string
 
         if (!selectedDate) {
           return createErrorResponse('Selecione uma data')
@@ -474,13 +770,13 @@ async function handleDataExchange(
           const dates = await getAvailableDates()
           const config = await getCalendarBookingConfig()
           const formattedChip = formatDateChip(selectedDate, config.timezone)
-          return createSuccessResponse('BOOKING_START', {
+          return createSuccessResponse(startScreenId, {
             ...data,
-            dates,
-            min_date: calendarPicker.minDate,
-            max_date: calendarPicker.maxDate,
-            include_days: calendarPicker.includeDays,
-            unavailable_dates: calendarPicker.unavailableDates,
+            [keys?.dates || 'dates']: dates,
+            [keys?.minDate || 'min_date']: calendarPicker.minDate,
+            [keys?.maxDate || 'max_date']: calendarPicker.maxDate,
+            [keys?.includeDays || 'include_days']: calendarPicker.includeDays,
+            [keys?.unavailableDates || 'unavailable_dates']: calendarPicker.unavailableDates,
             error_message: `${formattedChip} sem horarios. Escolha outra data.`,
             has_error: true,
           })
@@ -489,41 +785,47 @@ async function handleDataExchange(
         const config = await getCalendarBookingConfig()
         const formattedDate = formatDateLabel(selectedDate, config.timezone)
 
-        return createSuccessResponse('SELECT_TIME', {
-          selected_service: selectedService,
-          selected_date: selectedDate,
-          slots,
-          title: 'Escolha o Horario',
-          subtitle: `Horarios disponiveis para ${formattedDate}`,
+        return createSuccessResponse(timeScreenId, {
+          [serviceKey]: selectedService,
+          [dateKey]: selectedDate,
+          [keys?.slots || 'slots']: slots,
+          [keys?.timeTitle || 'title']: runtime?.examples?.timeTitle || 'Escolha o Horario',
+          [keys?.timeSubtitle || 'subtitle']: runtime?.examples?.timeSubtitle || `Horarios disponiveis para ${formattedDate}`,
         })
       }
 
       // Usuario selecionou horario, pedir dados do cliente
-      case 'SELECT_TIME': {
-        const selectedSlot = data.selected_slot as string
-        const selectedService = data.selected_service as string
-        const selectedDate = data.selected_date as string
+      case 'SELECT_TIME':
+      case timeScreenId: {
+        const selectedSlot = data[slotKey] as string
+        const selectedService = data[serviceKey] as string
+        const selectedDate = data[dateKey] as string
 
         if (!selectedSlot) {
           return createErrorResponse('Selecione um horario')
         }
 
-        return createSuccessResponse('CUSTOMER_INFO', {
-          selected_service: selectedService,
-          selected_date: selectedDate,
-          selected_slot: selectedSlot,
-          title: 'Seus Dados',
-          subtitle: 'Preencha seus dados para confirmar',
+        return createSuccessResponse(customerScreenId, {
+          [serviceKey]: selectedService,
+          [dateKey]: selectedDate,
+          [slotKey]: selectedSlot,
+          [keys?.customerTitle || 'title']: runtime?.examples?.customerTitle || 'Seus Dados',
+          [keys?.customerSubtitle || 'subtitle']: runtime?.examples?.customerSubtitle || 'Preencha seus dados para confirmar',
         })
       }
 
       // Usuario preencheu dados, confirmar agendamento
-      case 'CUSTOMER_INFO': {
-        const customerName = data.customer_name as string
-        const customerPhone = data.customer_phone as string
-        const notes = data.notes as string
-        const selectedSlot = data.selected_slot as string
-        const selectedService = data.selected_service as string
+      case 'CUSTOMER_INFO':
+      case customerScreenId: {
+        const customerNameKey = runtime?.payloadKeyByField?.customer_name || 'customer_name'
+        const customerPhoneKey = runtime?.payloadKeyByField?.customer_phone || 'customer_phone'
+        const notesKey = runtime?.payloadKeyByField?.notes || 'notes'
+
+        const customerName = data[customerNameKey] as string
+        const customerPhone = data[customerPhoneKey] as string
+        const notes = data[notesKey] as string
+        const selectedSlot = data[slotKey] as string
+        const selectedService = data[serviceKey] as string
 
         if (!customerName?.trim()) {
           return createErrorResponse('Informe seu nome')
@@ -545,19 +847,20 @@ async function handleDataExchange(
         const dateKey = formatInTimeZone(slotDate, config.timezone, 'yyyy-MM-dd')
         const formattedDate = formatDateLabel(dateKey, config.timezone)
 
-        const serviceInfo = DEFAULT_SERVICES.find((s) => s.id === selectedService)
+        const services = await getBookingServices(runtime?.fallbackServices)
+        const serviceInfo = services.find((s) => s.id === selectedService)
         const serviceName = serviceInfo?.title || selectedService
 
         // Finalizar flow com confirmacao
         return createCloseResponse({
           success: true,
           event_id: result.eventId,
-          selected_service: selectedService,
-          selected_date: formatInTimeZone(slotDate, config.timezone, 'yyyy-MM-dd'),
-          selected_slot: selectedSlot,
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone || '',
-          notes: notes || '',
+          [serviceKey]: selectedService,
+          [dateKey]: formatInTimeZone(slotDate, config.timezone, 'yyyy-MM-dd'),
+          [slotKey]: selectedSlot,
+          [customerNameKey]: customerName.trim(),
+          [customerPhoneKey]: customerPhone || '',
+          [notesKey]: notes || '',
           message: `Agendamento confirmado!\n\n${serviceName}\n${formattedDate} as ${formattedTime}\n\nVoce recebera um lembrete.`,
         })
       }

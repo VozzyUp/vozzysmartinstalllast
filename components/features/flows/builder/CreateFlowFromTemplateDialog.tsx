@@ -45,7 +45,7 @@ export function CreateFlowFromTemplateDialog(props: {
         <DialogHeader>
           <DialogTitle>Criar MiniApp por template</DialogTitle>
           <DialogDescription>
-            Comece a partir de um template (Lead/Cadastro, Agendamento, NPS). Você poderá editar o JSON depois.
+            Comece a partir de um modelo pronto (Lead/Cadastro, Agendamento, NPS).
           </DialogDescription>
         </DialogHeader>
 
@@ -90,7 +90,7 @@ export function CreateFlowFromTemplateDialog(props: {
 
             {selected ? (
               <div className="text-xs text-gray-500">
-                Este template cria um MiniApp “sem endpoint” para testar rápido.
+                {selected.isDynamic ? 'Modelo dinâmico: atualiza dados em tempo real.' : 'Modelo simples: pronto para usar.'}
               </div>
             ) : null}
           </div>

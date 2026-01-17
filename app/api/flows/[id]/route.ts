@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { supabase } from '@/lib/supabase'
+import { settingsDb } from '@/lib/supabase-db'
 
 function isMissingDbColumn(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
@@ -132,6 +133,39 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     if (error) return NextResponse.json({ error: error.message || 'Falha ao atualizar flow' }, { status: 500 })
+
+    try {
+      const spec = patch.spec && typeof patch.spec === 'object' ? (patch.spec as any) : null
+      const servicesFromSpec = Array.isArray(spec?.dynamicFlow?.services)
+        ? spec.dynamicFlow.services
+        : Array.isArray(spec?.booking?.services)
+          ? spec.booking.services
+          : null
+      const normalizedServices = Array.isArray(servicesFromSpec)
+        ? servicesFromSpec
+            .map((opt: any) => ({
+              id: typeof opt?.id === 'string' ? opt.id.trim() : String(opt?.id ?? '').trim(),
+              title: typeof opt?.title === 'string' ? opt.title.trim() : String(opt?.title ?? '').trim(),
+              ...(typeof opt?.durationMinutes === 'number' ? { durationMinutes: opt.durationMinutes } : {}),
+            }))
+            .filter((opt) => opt.id && opt.title)
+        : []
+      const isBookingFlow = Array.isArray((flowJsonObj as any)?.screens)
+        ? (flowJsonObj as any).screens.some((s: any) => String(s?.id || '') === 'BOOKING_START')
+        : false
+      if (isBookingFlow && normalizedServices.length > 0) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'flows/[id]/route.ts:saveServices',message:'S1-sync-services',data:{flowId:id,servicesCount:normalizedServices.length,firstService:normalizedServices[0]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+        // #endregion
+        await settingsDb.set('booking_services', JSON.stringify(normalizedServices))
+      } else if (isBookingFlow) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'flows/[id]/route.ts:saveServices',message:'S2-no-services',data:{flowId:id,isBookingFlow,hasServicesInSpec:!!servicesFromSpec,servicesFromSpecLength:Array.isArray(servicesFromSpec)?servicesFromSpec.length:null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+        // #endregion
+      }
+    } catch {
+      // ignore settings sync errors
+    }
 
     const row = Array.isArray(data) ? data[0] : (data as any)
     if (!row) return NextResponse.json({ error: 'Flow não encontrado' }, { status: 404 })

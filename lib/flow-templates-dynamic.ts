@@ -59,7 +59,7 @@ export const DYNAMIC_BOOKING_FLOW_JSON = {
             { id: '2024-01-16', title: 'Ter, 16 de Jan' },
           ],
         },
-        error_message: { type: 'string', __example__: '' },
+        error_message: { type: 'string', __example__: 'Nenhum horário disponível para esta data. Escolha outra data.' },
       },
       layout: {
         type: 'SingleColumnLayout',
@@ -90,6 +90,7 @@ export const DYNAMIC_BOOKING_FLOW_JSON = {
                 type: 'TextCaption',
                 text: '${data.error_message}',
                 visible: '${data.error_message}',
+                __editor_label: 'Mensagem de erro (quando não houver horários)',
               },
               {
                 type: 'Footer',
@@ -243,10 +244,6 @@ export const DYNAMIC_BOOKING_FLOW_JSON = {
         type: 'SingleColumnLayout',
         children: [
           {
-            type: 'TextHeading',
-            text: 'Agendamento Confirmado',
-          },
-          {
             type: 'TextBody',
             text: '${data.message}',
           },
@@ -270,6 +267,12 @@ export const DYNAMIC_BOOKING_FLOW_JSON = {
 /**
  * Template de agendamento dinamico para o flow-templates
  */
+// #region agent log
+const _successScreenChildren = (DYNAMIC_BOOKING_FLOW_JSON as any).screens?.find?.((s:any)=>s.id==='SUCCESS')?.layout?.children
+if (typeof window !== 'undefined') {
+  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'flow-templates-dynamic.ts:module-load',message:'T1-template-loaded',data:{successChildTypes:_successScreenChildren?.map?.((c:any)=>c?.type)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{})
+}
+// #endregion
 export const dynamicBookingTemplate = {
   key: 'agendamento_dinamico_v1',
   name: 'Agendamento Dinamico (Google Calendar)',

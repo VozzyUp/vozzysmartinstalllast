@@ -1,5 +1,41 @@
 # Changelog (docs)
 
+## 17/01/2026 - Validação Zod para serviços de agendamento
+
+- **✅ Schemas Zod para validação de serviços**
+  - `lib/dynamic-flow.ts` - adicionado `BookingServiceSchema` e `BookingServicesArraySchema`
+  - Função `validateBookingServices()` para validação tipada
+  - `normalizeServices()` agora usa Zod com fallback manual
+  - Logs de warning quando serviços inválidos são detectados
+- **🔍 Instrumentação da sincronização de serviços**
+  - `app/api/flows/[id]/route.ts` - logs para rastrear quando serviços são salvos no settingsDb
+
+## 17/01/2026 - Fix payload do complete action em telas terminais
+
+- **🔧 Complete action usa apenas campos da própria tela**
+  - `lib/dynamic-flow.ts` - `generateDynamicFlowJson` agora usa `screenFieldNames` (campos da tela atual) ao invés de `allFieldNames` (todos os campos de todas as telas)
+  - Corrige erro "Missing Form component ${form.*} for screen 'SUCCESS'" ao publicar flows dinâmicos
+
+## 17/01/2026 - Fix publicação Flow com propriedades customizadas
+
+- **🔧 stripEditorMetadata remove todas as propriedades `__*`**
+  - `app/api/flows/[id]/meta/publish/route.ts` - agora remove qualquer chave `__*` exceto `__example__`
+  - Corrige erro 139001 "Erro ao processar o WELJ" ao publicar flows com `__editor_label`
+
+## 15/01/2026 - Campo de erro com label explicativo
+
+- **📝 Mensagem de erro visível e editável no editor**
+  - `lib/flow-templates-dynamic.ts` - `error_message` agora tem `__example__` com texto padrão
+  - `lib/dynamic-flow.ts` - TextCaption de erro inclui `__editor_label` explicativo
+  - `UnifiedFlowEditor.tsx` - usa `__editor_label` quando disponível em blocos de texto
+
+## 15/01/2026 - Remoção de texto duplicado na tela de sucesso
+
+- **🧹 TextHeading duplicado removido dos templates de agendamento**
+  - `lib/flow-templates-dynamic.ts` - removido TextHeading hardcoded "Agendamento Confirmado" da tela SUCCESS
+  - `lib/dynamic-flow.ts` - `generateBookingDynamicFlowJson` agora gera apenas TextBody (sem TextHeading duplicado)
+  - Mantida função `dedupeSuccessTextBlocks` em `normalizeDynamicFlowSpec` para casos legados
+
 ## 15/01/2026 - Estabilidade do editor unificado
 
 - **♻️ Loop de render e ordem de hooks corrigidos**
@@ -12,6 +48,150 @@
 - **🏷️ Confirmação usa o texto da pergunta**
   - `app/api/webhook/route.ts` agora extrai labels do `flow_json` e substitui `topics/notes/...` pelo texto da pergunta
   - Fallback mantém o comportamento antigo quando não há `flow_json` disponível
+
+## 15/01/2026 - Rótulos customizáveis na confirmação
+
+- **✏️ Campos do resumo com nome editável**
+  - `app/(dashboard)/flows/builder/[id]/page.tsx` permite editar o rótulo de cada pergunta na etapa Finalizar
+  - `app/api/webhook/route.ts` usa `confirmation_labels` enviados no payload para renderizar o resumo
+
+## 15/01/2026 - Edição inline de rótulos
+
+- **📝 Rótulo editável direto no campo**
+  - `app/(dashboard)/flows/builder/[id]/page.tsx` passa a permitir editar o texto no próprio campo do resumo (sem input separado)
+
+## 15/01/2026 - Reset de rótulo no resumo
+
+- **↩️ Reset rápido do rótulo**
+  - `app/(dashboard)/flows/builder/[id]/page.tsx` adiciona botão “Resetar” para voltar ao rótulo padrão do campo
+
+## 15/01/2026 - Atalho ngrok em dev
+
+- **🧪 Iniciar ngrok dentro do app**
+  - `components/features/settings/NgrokDevPanel.tsx` adiciona painel de webhook local no modo dev
+  - `app/api/debug/ngrok/route.ts` permite iniciar/parar ngrok e ler a URL pública
+
+## 15/01/2026 - Diagnóstico do ngrok em dev
+
+- **🔍 Erro quando a API local não responde**
+  - `app/api/debug/ngrok/route.ts` retorna `apiError` quando o painel do ngrok não responde
+  - `components/features/settings/NgrokDevPanel.tsx` mostra aviso com instrução local
+
+## 15/01/2026 - URL do ngrok sem depender do painel local
+
+- **🔗 Captura da URL via logs**
+  - `app/api/debug/ngrok/route.ts` agora extrai o `public_url` do stdout do ngrok (log-format=json)
+
+## 15/01/2026 - Status do ngrok mais estável
+
+- **🟢 Detecta ngrok ativo via URL**
+  - `app/api/debug/ngrok/route.ts` considera o ngrok ativo quando há URL pública disponível
+  - `components/features/settings/NgrokDevPanel.tsx` exibe status “Ativo” mesmo sem processo local
+
+## 15/01/2026 - Painel ngrok com Agent API
+
+- **🔌 Controle confiável de túneis em dev**
+  - `app/api/debug/ngrok/route.ts` migra para Agent API (`/api/tunnels`) com start/stop real e URL estável
+  - `components/features/settings/NgrokDevPanel.tsx` exibe status, botão de copiar URL e instruções de setup
+  - Fallback informativo com comando do Cloudflare Quick Tunnel
+
+## 15/01/2026 - Detecção de binários em dev
+
+- **🧰 Instruções baseadas em binários instalados**
+  - `app/api/debug/ngrok/route.ts` detecta `ngrok` e `cloudflared` no PATH
+  - `components/features/settings/NgrokDevPanel.tsx` ajusta mensagens conforme o binário disponível
+
+## 15/01/2026 - Dev com ngrok automático
+
+- **▶️ Script para iniciar ngrok + Next.js**
+  - `scripts/dev-with-ngrok.mjs` inicia o ngrok e o `npm run dev` juntos
+  - `package.json` adiciona o script `dev:with-ngrok`
+
+## 15/01/2026 - Ngrok auto-start no painel
+
+- **⚡ Auto-início via Configurações (dev)**
+  - `app/api/debug/ngrok/route.ts` inicia o ngrok se a API local estiver indisponível
+  - `components/features/settings/NgrokDevPanel.tsx` dispara autostart ao abrir e simplifica botões
+
+## 15/01/2026 - URL do webhook com ngrok (dev)
+
+- **🔁 Atualização automática da URL**
+  - `components/features/settings/SettingsView.tsx` usa a URL pública do ngrok no bloco de Webhooks
+  - Atualiza periodicamente para refletir o túnel ativo
+
+## 15/01/2026 - MiniApp com URL dev
+
+- **🔗 Endpoint do MiniApp usando ngrok**
+  - `components/features/settings/FlowEndpointPanel.tsx` exibe URL do endpoint com base no ngrok em dev
+  - `components/features/settings/SettingsView.tsx` compartilha a base pública com os blocos
+
+## 15/01/2026 - Teste de URL do webhook
+
+- **✅ Validação direta do ngrok**
+  - `app/api/debug/webhook/test/route.ts` testa a URL com `hub.verify_token`
+  - `components/features/settings/webhook/WebhookUrlConfig.tsx` adiciona botão de teste em dev
+
+## 15/01/2026 - Espaçamento da confirmação
+
+- **✉️ Mensagem mais legível**
+  - `app/api/webhook/route.ts` adiciona linha em branco entre título, respostas e rodapé
+
+## 15/01/2026 - Badges Simples/Dinâmico
+
+- **🏷️ Templates sem jargão**
+  - `lib/flow-templates.ts` remove “(sem endpoint)” dos nomes
+  - `app/(dashboard)/flows/builder/[id]/page.tsx` mostra badge “Simples”/“Dinâmico”
+  - `components/features/flows/builder/form-builder/TemplateImportDialog.tsx` adiciona badges
+  - `components/features/flows/builder/CreateFlowFromTemplateDialog.tsx` ajusta texto auxiliar
+  - Badge “Dinâmico” usa verde para manter o padrão visual
+  - Remove badge “Selecionado” nos cards iniciais
+
+## 15/01/2026 - Títulos dinâmicos amigáveis
+
+- **🧩 Resolve placeholders no editor**
+  - `components/features/flows/builder/UnifiedFlowEditor.tsx` mostra `__example__` em telas e textos
+  - Edição do título/texto com `${data.*}` atualiza o `__example__`
+
+## 15/01/2026 - Opções dinâmicas no editor
+
+- **✅ Auditoria do template de agendamento**
+  - `components/features/flows/builder/UnifiedFlowEditor.tsx` mostra opções reais via `__example__`
+  - Permite editar opções dinâmicas atualizando o `__example__`
+
+## 15/01/2026 - Serviços reais no agendamento
+
+- **🔗 Editor sincroniza serviços com endpoint**
+  - `app/api/flows/[id]/route.ts` salva a lista editada em `settings`
+  - `lib/whatsapp/flow-endpoint-handlers.ts` usa `booking_services`
+
+## 15/01/2026 - Endpoint dinâmico do template
+
+- **🔁 Contrato do template passa a ser fonte da verdade**
+  - `lib/whatsapp/flow-endpoint-handlers.ts` lê `flow_json` via `flow_token`
+  - Campos, títulos e listas seguem o que foi editado no template
+
+## 15/01/2026 - Texto duplicado no sucesso
+
+- **🧹 Evita repetir o mesmo texto**
+  - `lib/dynamic-flow.ts` só renderiza título quando for diferente da mensagem
+
+## 15/01/2026 - Deduplicação na tela de sucesso
+
+- **🧼 Remove blocos repetidos**
+  - `lib/dynamic-flow.ts` elimina `TextHeading` quando for igual ao `TextBody` em telas de sucesso
+
+## 15/01/2026 - Token do webhook em dev
+
+- **🧠 Fallback in-memory**
+  - `lib/verify-token.ts` mantém token em memória quando o banco não responde
+  - Evita `Forbidden` no teste do webhook local
+
+## 15/01/2026 - QStash no dev com ngrok
+
+- **🚚 Disparo local sem quebrar**
+  - `app/api/campaign/dispatch/route.ts` usa ngrok quando há QSTASH_TOKEN
+  - Em dev sem token, faz chamada direta ao workflow
+  - `lib/builder/workflow-schedule.ts` resolve baseUrl via ngrok no dev
 
 ## 15/01/2026 - Build fix do editor
 

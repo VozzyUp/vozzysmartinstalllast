@@ -13,6 +13,9 @@ interface WebhookUrlConfigProps {
   onDomainChange: (url: string) => void;
   copiedField: string | null;
   onCopy: (text: string, field: string) => void;
+  onTestUrl?: () => void;
+  isTestingUrl?: boolean;
+  showTestUrl?: boolean;
 }
 
 export function WebhookUrlConfig({
@@ -24,6 +27,9 @@ export function WebhookUrlConfig({
   onDomainChange,
   copiedField,
   onCopy,
+  onTestUrl,
+  isTestingUrl,
+  showTestUrl,
 }: WebhookUrlConfigProps) {
   return (
     <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6">
@@ -72,6 +78,16 @@ export function WebhookUrlConfig({
               <Copy size={16} className="text-gray-400" />
             )}
           </button>
+          {showTestUrl ? (
+            <button
+              onClick={onTestUrl}
+              disabled={isTestingUrl}
+              className="h-10 px-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg transition-colors text-xs text-blue-200"
+              title="Testar URL"
+            >
+              {isTestingUrl ? 'Testando...' : 'Testar URL'}
+            </button>
+          ) : null}
         </div>
         <div className="flex gap-2 items-center">
           <span className="text-xs text-gray-500">Token:</span>

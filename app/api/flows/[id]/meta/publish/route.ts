@@ -52,13 +52,42 @@ const ENDPOINT_URL_SETTING = 'whatsapp_flow_endpoint_url'
 const PUBLIC_KEY_SETTING = 'whatsapp_flow_public_key'
 
 /**
+ * Detecta URL do ngrok ativo em dev (consulta API local do ngrok)
+ */
+async function getActiveNgrokUrl(): Promise<string | null> {
+  if (process.env.NODE_ENV !== 'development') return null
+  try {
+    const res = await fetch('http://127.0.0.1:4040/api/tunnels', { 
+      method: 'GET',
+      signal: AbortSignal.timeout(1000) // timeout rapido
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { tunnels?: { public_url?: string; config?: { addr?: string } }[] }
+    const tunnel = data?.tunnels?.find(t => 
+      t.config?.addr?.includes(':3000') || t.config?.addr?.includes('localhost')
+    ) || data?.tunnels?.[0]
+    return tunnel?.public_url || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Retorna a URL do endpoint se configurado
+ * Prioridade: ngrok ativo (dev) > env vars > stored URL
  */
 async function getFlowEndpointUrl(): Promise<string | null> {
   const privateKey = await settingsDb.get('whatsapp_flow_private_key')
   if (!privateKey) return null
 
-  // Monta a URL do endpoint
+  // 1. Em dev, verifica se tem ngrok ativo
+  const ngrokUrl = await getActiveNgrokUrl()
+  if (ngrokUrl) {
+    console.log('[publish] 🚇 Usando ngrok URL:', ngrokUrl)
+    return `${ngrokUrl}/api/flows/endpoint`
+  }
+
+  // 2. Env vars (producao/preview Vercel)
   const envEndpointUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
     ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/api/flows/endpoint`
     : process.env.VERCEL_URL
@@ -66,8 +95,11 @@ async function getFlowEndpointUrl(): Promise<string | null> {
       : process.env.NEXT_PUBLIC_APP_URL
         ? `${process.env.NEXT_PUBLIC_APP_URL}/api/flows/endpoint`
         : null
+  
+  // 3. Fallback: URL salva no banco
   const storedEndpointUrl = await settingsDb.get(ENDPOINT_URL_SETTING)
   const resolved = envEndpointUrl || storedEndpointUrl || null
+  console.log('[publish] 📍 Endpoint URL resolvida:', resolved, '(ngrok:', ngrokUrl, ', env:', envEndpointUrl, ', stored:', storedEndpointUrl, ')')
   return resolved
 }
 
@@ -131,8 +163,8 @@ function stripEditorMetadata(input: unknown): unknown {
 
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-    // Metadados internos do editor que a Meta rejeita no Flow JSON
-    if (k === '__editor_key' || k === '__editor_title_key' || k === '__builder_id') continue
+    // Remove TODAS as propriedades internas (__*) exceto __example__ (usada no schema de data)
+    if (k.startsWith('__') && k !== '__example__') continue
     out[k] = stripEditorMetadata(v)
   }
   return out
@@ -594,8 +626,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       try {
         try {
           const hasRoutingModel = !!(flowJsonObj as any)?.routing_model
+          // Captura amostra do JSON para debug
+          const jsonSample = {
+            version: (flowJsonForMeta as any)?.version,
+            data_api_version: (flowJsonForMeta as any)?.data_api_version,
+            routing_model: (flowJsonForMeta as any)?.routing_model,
+            firstScreen: (() => {
+              const s = (flowJsonForMeta as any)?.screens?.[0]
+              if (!s) return null
+              return {
+                id: s.id,
+                title: s.title,
+                dataKeys: s.data ? Object.keys(s.data) : [],
+                layoutType: s.layout?.type,
+                childrenTypes: s.layout?.children?.map((c: any) => c?.type),
+                childrenWithVisible: s.layout?.children?.filter((c: any) => c?.visible !== undefined).map((c: any) => ({ type: c?.type, visible: c?.visible })),
+              }
+            })(),
+          }
           // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'meta-publish',hypothesisId:'H3',location:'app/api/flows/[id]/meta/publish/route.ts:metaCreateFlow',message:'creating flow on Meta',data:{flowId:id,publish:!!input.publish,dynamic,hasRoutingModel,dataApiVersion:(flowJsonObj as any)?.data_api_version ?? null,screenIds},timestamp:Date.now()})}).catch(()=>{});
+          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'meta-publish',hypothesisId:'H3',location:'app/api/flows/[id]/meta/publish/route.ts:metaCreateFlow',message:'creating flow on Meta',data:{flowId:id,publish:!!input.publish,dynamic,hasRoutingModel,dataApiVersion:(flowJsonObj as any)?.data_api_version ?? null,screenIds,jsonSample},timestamp:Date.now()})}).catch(()=>{});
           // #endregion agent log
         } catch {}
         created = await metaCreateFlow({

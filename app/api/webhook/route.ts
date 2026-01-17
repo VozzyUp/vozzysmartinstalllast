@@ -585,9 +585,6 @@ export async function POST(request: NextRequest) {
             const firstErr = errs?.[0]
             const hasErr = !!firstErr
             if (status === 'failed' || hasErr) {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-send',hypothesisId:'S2',location:'app/api/webhook/route.ts:statuses',message:'message status update (failed/hasErr)',data:{status,messageIdSuffix:messageId?messageId.slice(-6):null,hasError:hasErr,errorCode:hasErr?String(firstErr?.code||''):null,errorTitle:hasErr?String(firstErr?.title||''):null},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion agent log
             }
           } catch {}
           if (!messageId || !status) continue
@@ -962,11 +959,6 @@ export async function POST(request: NextRequest) {
                     .limit(1)
 
                   const flowRow = Array.isArray(flowRows) ? flowRows[0] : (flowRows as any)
-                  // #region agent log
-                  try {
-                    fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-confirm',hypothesisId:'H5',location:'app/api/webhook/route.ts:flowLookup',message:'flow row lookup by meta_flow_id',data:{metaFlowIdForLookup,hasFlowRow:!!flowRow,flowRowId:flowRow?.id??null},timestamp:Date.now()})}).catch(()=>{});
-                  } catch {}
-                  // #endregion agent log
                   if (flowRow?.id && flowRow?.mapping) {
                     flowLocalId = String(flowRow.id)
                     const applied = await applyFlowMappingToContact({
@@ -993,9 +985,6 @@ export async function POST(request: NextRequest) {
                       flowJsonForChoiceMap = row?.flow_json ?? null
                       choiceTitleMap = buildOptionTitleMapFromFlowJson(flowJsonForChoiceMap)
                       fieldLabelMap = buildFieldLabelMapFromFlowJson(flowJsonForChoiceMap)
-                      // #region agent log
-                      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-confirm',hypothesisId:'H3',location:'app/api/webhook/route.ts:choiceTitleMap',message:'built choice/label maps from flow_json',data:{hasFlowJson:!!flowJsonForChoiceMap,fieldsCount:choiceTitleMap?Object.keys(choiceTitleMap).length:0,hasTopics:!!(choiceTitleMap&&choiceTitleMap['topics']),labelCount:fieldLabelMap?Object.keys(fieldLabelMap).length:0,hasLabelTopics:!!(fieldLabelMap&&fieldLabelMap['topics'])},timestamp:Date.now()})}).catch(()=>{});
-                      // #endregion agent log
                     } catch (e) {
                       // ignore (best-effort)
                     }
@@ -1144,9 +1133,6 @@ export async function POST(request: NextRequest) {
 
                   try {
                     const keys = Object.keys(responseObj || {})
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-confirm',hypothesisId:'H1',location:'app/api/webhook/route.ts:flowSubmission',message:'flow submission response_json keys',data:{keysCount:keys.length,keysPreview:keys.slice(0,12),shouldSendConfirmation,hasTopics:keys.includes('topics'),hasNotes:keys.includes('notes')},timestamp:Date.now()})}).catch(()=>{});
-                    // #endregion agent log
                   } catch {}
 
                   if (shouldSendConfirmation) {
@@ -1210,7 +1196,9 @@ export async function POST(request: NextRequest) {
                         'confirmation_title',
                         'confirmation_footer',
                         'confirmation_fields',
+                        'confirmation_labels',
                       ])
+                      const ignoredKeysLower = new Set(Array.from(ignoredKeys).map((k) => k.toLowerCase()))
 
                       const selectedKeys =
                         Array.isArray((responseObj as any).confirmation_fields)
@@ -1223,7 +1211,10 @@ export async function POST(request: NextRequest) {
                           : null
 
                       const entries = Object.entries(responseObj || {}).filter(([key, value]) => {
-                        if (ignoredKeys.has(key)) return false
+                        const keyNorm = String(key || '').toLowerCase()
+                        if (ignoredKeysLower.has(keyNorm)) {
+                          return false
+                        }
                         if (selectedKeys && !selectedKeys.has(key)) return false
                         if (value == null) return false
                         if (typeof value === 'string' && !value.trim()) return false
@@ -1231,10 +1222,18 @@ export async function POST(request: NextRequest) {
                       })
 
                       const lines = entries.map(([key, value]) => {
+                        const responseLabelMap =
+                          responseObj && typeof responseObj.confirmation_labels === 'object' && !Array.isArray(responseObj.confirmation_labels)
+                            ? (responseObj.confirmation_labels as Record<string, unknown>)
+                            : null
+                        const labelFromResponse =
+                          responseLabelMap && typeof responseLabelMap[key] === 'string' ? String(responseLabelMap[key]).trim() : ''
                         const labelFromMap =
                           fieldLabelMap && typeof fieldLabelMap[key] === 'string' ? fieldLabelMap[key].trim() : ''
-                        const label = labelFromMap
-                          ? labelFromMap
+                        const label = labelFromResponse
+                          ? labelFromResponse
+                          : labelFromMap
+                            ? labelFromMap
                           : key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
                         let display = ''
                         if (Array.isArray(value)) {
@@ -1269,26 +1268,23 @@ export async function POST(request: NextRequest) {
                             !!choiceTitleMap[key] &&
                             ((typeof value === 'string' && !!choiceTitleMap[key][value]) ||
                               (Array.isArray(value) && value.some((v) => typeof v === 'string' && !!choiceTitleMap?.[key]?.[v])))
-                          // #region agent log
-                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-confirm',hypothesisId:'H4',location:'app/api/webhook/route.ts:confirmationLine',message:'built confirmation line',data:{key,labelSource:labelFromMap?'flow_json':'fallback',valueType:Array.isArray(value)?'array':typeof value,usedMap,displayPreview:String(display).slice(0,30)},timestamp:Date.now()})}).catch(()=>{});
-                          // #endregion agent log
                         } catch {}
                         return `${label}: ${display}`
                       })
 
                       const genericTitle = flowTitleOverride || 'Resposta registrada ✅'
                       const genericFooter = flowFooterOverride || confirmationFooter
-                      parts = [
+                      const rawParts = [
                         genericTitle,
+                        '',
                         ...lines,
+                        '',
                         genericFooter,
-                      ].filter(Boolean) as string[]
+                      ]
+                      parts = rawParts.filter((value) => value !== null && value !== undefined) as string[]
                     }
 
                     try {
-                      // #region agent log
-                      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'flow-confirm',hypothesisId:'H2',location:'app/api/webhook/route.ts:flowSubmission',message:'flow confirmation message built',data:{linesCount:parts.length,hasAnyAnswerLines:parts.length>2,title:String(parts[0]||''),footerSuffix:String(parts[parts.length-1]||'').slice(-18)},timestamp:Date.now()})}).catch(()=>{});
-                      // #endregion agent log
                     } catch {}
 
                     await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {

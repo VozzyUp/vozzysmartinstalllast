@@ -9,6 +9,7 @@ import { WebhookConfigSection } from './WebhookConfigSection';
 import { CalendarBookingPanel } from './CalendarBookingPanel';
 import { FlowEndpointPanel } from './FlowEndpointPanel';
 import { CredentialsForm } from './CredentialsForm';
+import { NgrokDevPanel } from './NgrokDevPanel';
 import type { SettingsViewProps } from './types';
 
 // Re-export types for consumers
@@ -86,6 +87,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   // Always start collapsed
   const [isEditing, setIsEditing] = useState(false);
+  const [devPublicBaseUrl, setDevPublicBaseUrl] = useState<string | null>(null);
 
   // Refs para UX: o formulário de credenciais fica bem abaixo do card.
   // Sem scroll automático, parece que o botão "Editar" não funcionou.
@@ -103,6 +105,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     return () => window.clearTimeout(t);
   }, [isEditing]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    let isActive = true;
+
+    const loadNgrok = async () => {
+      try {
+        const res = await fetch('/api/debug/ngrok?autostart=1', { method: 'GET' });
+        if (!res.ok) return;
+        const data = (await res.json()) as { publicUrl?: string | null };
+        if (!isActive) return;
+        const url = data?.publicUrl ? String(data.publicUrl) : null;
+        setDevPublicBaseUrl(url);
+      } catch {
+        if (isActive) setDevPublicBaseUrl(null);
+      }
+    };
+
+    loadNgrok();
+    const interval = window.setInterval(loadNgrok, 4000);
+    return () => {
+      isActive = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const devWebhookUrl = devPublicBaseUrl
+    ? `${devPublicBaseUrl}${webhookPath || '/api/webhook'}`
+    : null;
 
   if (isLoading) return <div className="text-white">Carregando configurações...</div>;
 
@@ -169,7 +200,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
 
         {/* Flow Endpoint (MiniApp Dinamico) */}
-        {settings.isConnected && <FlowEndpointPanel />}
+        {settings.isConnected && <FlowEndpointPanel devBaseUrl={devPublicBaseUrl} />}
 
         {/* Test Contact Section */}
         {settings.isConnected && (
@@ -212,11 +243,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           />
         )}
 
+        {/* Webhook Local (dev only) */}
+        {process.env.NODE_ENV === 'development' && <NgrokDevPanel />}
+
 
         {/* Webhook Configuration Section */}
-        {settings.isConnected && webhookUrl && (
+        {settings.isConnected && (webhookUrl || devWebhookUrl) && (
           <WebhookConfigSection
-            webhookUrl={webhookUrl}
+            webhookUrl={devWebhookUrl || webhookUrl}
             webhookToken={webhookToken}
             webhookStats={webhookStats}
             webhookPath={webhookPath}

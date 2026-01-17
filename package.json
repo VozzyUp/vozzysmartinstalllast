@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:with-ngrok": "node scripts/dev-with-ngrok.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint app components hooks lib services scripts utils --ext .js,.jsx,.ts,.tsx,.mjs,.cjs",

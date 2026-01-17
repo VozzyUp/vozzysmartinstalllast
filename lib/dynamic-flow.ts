@@ -1,11 +1,37 @@
+import { z } from 'zod'
 import { generateFlowJsonFromFormSpec, normalizeFlowFormSpec } from '@/lib/flow-form'
+
+// ============================================================================
+// ZOD SCHEMAS - Validação de dados do Flow Dinâmico
+// ============================================================================
+
+/** Schema para opção de serviço (dropdown) */
+export const BookingServiceSchema = z.object({
+  id: z.string().min(1, 'ID do serviço é obrigatório'),
+  title: z.string().min(1, 'Título do serviço é obrigatório'),
+  durationMinutes: z.number().positive().optional(),
+})
+
+/** Schema para array de serviços */
+export const BookingServicesArraySchema = z
+  .array(BookingServiceSchema)
+  .min(1, 'Pelo menos um serviço é obrigatório')
+
+/** Valida serviços e retorna resultado tipado */
+export function validateBookingServices(
+  services: unknown,
+): { success: true; data: BookingServiceOption[] } | { success: false; error: string } {
+  const result = BookingServicesArraySchema.safeParse(services)
+  if (!result.success) {
+    const firstError = result.error.errors[0]
+    return { success: false, error: firstError?.message || 'Serviços inválidos' }
+  }
+  return { success: true, data: result.data }
+}
 
 export type BookingDateComponent = 'calendar' | 'dropdown'
 
-export type BookingServiceOption = {
-  id: string
-  title: string
-}
+export type BookingServiceOption = z.infer<typeof BookingServiceSchema>
 
 type DynamicFlowComponent = Record<string, unknown>
 
@@ -281,6 +307,56 @@ function normalizeComponents(input: unknown): DynamicFlowComponent[] {
   return input.filter((item) => item && typeof item === 'object') as DynamicFlowComponent[]
 }
 
+function normalizeTextForCompare(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+function resolveDataBindingTextForCompare(raw: unknown, data: Record<string, unknown> | undefined): string {
+  const text = typeof raw === 'string' ? raw : ''
+  const match = text.match(/^\$\{data\.([a-zA-Z0-9_]+)\}$/)
+  const key = match?.[1]
+  if (!key || !data || typeof data !== 'object') return text
+  const entry = (data as any)[key]
+  if (entry && typeof entry === 'object' && '__example__' in entry) {
+    const value = (entry as any).__example__
+    return value != null ? String(value) : text
+  }
+  return text
+}
+
+function dedupeSuccessTextBlocks(
+  components: DynamicFlowComponent[],
+  data: Record<string, unknown> | undefined,
+): DynamicFlowComponent[] {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:dedupeSuccessTextBlocks',message:'D1-entry',data:{componentTypes:components.map((c:any)=>c?.type),dataKeys:data?Object.keys(data):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+  // #endregion
+  const headingIdx = components.findIndex((c: any) => String(c?.type || '') === 'TextHeading')
+  const bodyIdx = components.findIndex((c: any) => String(c?.type || '') === 'TextBody')
+  if (headingIdx < 0 || bodyIdx < 0) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:dedupeSuccessTextBlocks',message:'D2-no-both',data:{headingIdx,bodyIdx},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
+    return components
+  }
+  const heading = resolveDataBindingTextForCompare((components[headingIdx] as any)?.text, data)
+  const body = resolveDataBindingTextForCompare((components[bodyIdx] as any)?.text, data)
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:dedupeSuccessTextBlocks',message:'D3-compare',data:{heading,body,headingNorm:normalizeTextForCompare(heading),bodyNorm:normalizeTextForCompare(body)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+  // #endregion
+  if (!heading || !body) return components
+  const same = normalizeTextForCompare(heading) === normalizeTextForCompare(body)
+  if (!same) return components
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:dedupeSuccessTextBlocks',message:'D4-removed-heading',data:{same,resultTypes:components.filter((_,idx)=>idx!==headingIdx).map((c:any)=>c?.type)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+  // #endregion
+  return components.filter((_, idx) => idx !== headingIdx)
+}
+
 function extractFieldNamesFromComponents(components: DynamicFlowComponent[]): string[] {
   const out: string[] = []
   const supported = new Set([
@@ -327,7 +403,18 @@ function normalizeAction(input: unknown): DynamicFlowActionV1 | undefined {
 }
 
 function normalizeServices(input: unknown): BookingServiceOption[] {
-  if (!Array.isArray(input)) return DEFAULT_BOOKING_CONFIG.services
+  if (!Array.isArray(input)) {
+    console.warn('[normalizeServices] Input não é array, usando serviços padrão')
+    return DEFAULT_BOOKING_CONFIG.services
+  }
+  
+  // Tenta validar com Zod primeiro
+  const zodResult = BookingServicesArraySchema.safeParse(input)
+  if (zodResult.success) {
+    return zodResult.data
+  }
+  
+  // Fallback: normaliza manualmente
   const sanitized = input
     .map((item) => {
       if (!item || typeof item !== 'object') return null
@@ -338,7 +425,13 @@ function normalizeServices(input: unknown): BookingServiceOption[] {
       return { id, title }
     })
     .filter(Boolean) as BookingServiceOption[]
-  return sanitized.length ? sanitized : DEFAULT_BOOKING_CONFIG.services
+  
+  if (!sanitized.length) {
+    console.warn('[normalizeServices] Nenhum serviço válido encontrado, usando padrão')
+    return DEFAULT_BOOKING_CONFIG.services
+  }
+  
+  return sanitized
 }
 
 export function normalizeBookingFlowConfig(input?: Partial<BookingFlowConfigV1>): BookingFlowConfigV1 {
@@ -387,7 +480,16 @@ export function normalizeDynamicFlowSpec(input?: Partial<DynamicFlowSpecV1>, fal
       const title = safeString((screen as any).title, `${baseTitle} ${idx + 1}`).trim() || `${baseTitle} ${idx + 1}`
       const terminal = typeof (screen as any).terminal === 'boolean' ? (screen as any).terminal : false
       const data = isPlainObject((screen as any).data) ? ((screen as any).data as Record<string, unknown>) : undefined
-      const components = normalizeComponents((screen as any).components)
+      let components = normalizeComponents((screen as any).components)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:normalizeDynamicFlowSpec',message:'N1-screen',data:{screenId:id,isSuccess:(screen as any).success===true,componentsBefore:components.map((c:any)=>c?.type)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      if ((screen as any).success === true) {
+        components = dedupeSuccessTextBlocks(components, data)
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:normalizeDynamicFlowSpec',message:'N2-after-dedupe',data:{screenId:id,componentsAfter:components.map((c:any)=>c?.type)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+      }
       const action = normalizeAction((screen as any).action)
       return {
         id,
@@ -711,10 +813,16 @@ export function generateDynamicFlowJson(input: DynamicFlowSpecV1): Record<string
 
       // UX: respostas + confirmação dependem do payload no `complete`.
       // A Meta rejeita payload em `navigate`, mas aceita em `complete`/`data_exchange`.
+      // IMPORTANTE: ${form.*} só funciona para campos DA MESMA TELA. Campos de telas anteriores
+      // são passados via data_exchange e estão disponíveis como ${data.*}.
       const isComplete = action?.type === 'complete' || !!screen.terminal
       if (isComplete) {
         const extra =
           action?.payload && isPlainObject(action.payload) ? (action.payload as Record<string, unknown>) : {}
+        
+        // Usa apenas campos que existem NESTA tela para ${form.*}
+        // Campos de outras telas já chegaram via data_exchange e estão em ${data.*}
+        const thisScreenFieldNames = screenFieldNames
         const selectedFromConfig = Array.isArray((extra as any).confirmation_fields)
           ? ((extra as any).confirmation_fields as unknown[])
               .filter((x) => typeof x === 'string')
@@ -723,8 +831,8 @@ export function generateDynamicFlowJson(input: DynamicFlowSpecV1): Record<string
           : null
         const selectedFieldNames =
           selectedFromConfig && selectedFromConfig.length
-            ? selectedFromConfig.filter((n) => allFieldNames.includes(n))
-            : allFieldNames
+            ? selectedFromConfig.filter((n) => thisScreenFieldNames.includes(n))
+            : thisScreenFieldNames
 
         const baseCompletePayload: Record<string, string> = {}
         for (const n of selectedFieldNames) baseCompletePayload[n] = `\${form.${n}}`
@@ -816,7 +924,7 @@ export function generateBookingDynamicFlowJson(configInput?: Partial<BookingFlow
           max_date: { type: 'string', __example__: '2026-01-22' },
           include_days: { type: 'array', items: { type: 'string' }, __example__: ['Mon', 'Tue'] },
           unavailable_dates: { type: 'array', items: { type: 'string' }, __example__: [] },
-          error_message: { type: 'string', __example__: '' },
+          error_message: { type: 'string', __example__: 'Nenhum horário disponível para esta data. Escolha outra data.' },
           has_error: { type: 'boolean', __example__: false },
         },
         layout: {
@@ -836,7 +944,7 @@ export function generateBookingDynamicFlowJson(configInput?: Partial<BookingFlow
                   'data-source': '${data.services}',
                 },
                 dateComponent,
-                { type: 'TextCaption', text: '${data.error_message}', visible: '${data.has_error}' },
+                { type: 'TextCaption', text: '${data.error_message}', visible: '${data.has_error}', __editor_label: 'Mensagem de erro (quando não houver horários)' },
                 {
                   type: 'Footer',
                   label: config.start.ctaLabel,
@@ -965,10 +1073,11 @@ export function generateBookingDynamicFlowJson(configInput?: Partial<BookingFlow
         },
         layout: {
           type: 'SingleColumnLayout',
-          children: [
-            { type: 'TextHeading', text: config.success.heading, __editor_key: 'success.heading' },
-            { type: 'TextBody', text: '${data.message}', __editor_key: 'success.message' },
-            {
+          children: (() => {
+            // Apenas TextBody - heading duplicado é removido automaticamente
+            const content: any[] = []
+            content.push({ type: 'TextBody', text: '${data.message}', __editor_key: 'success.message' })
+            content.push({
               type: 'Footer',
               label: config.success.closeLabel,
               __editor_key: 'success.closeLabel',
@@ -976,8 +1085,12 @@ export function generateBookingDynamicFlowJson(configInput?: Partial<BookingFlow
                 name: 'complete',
                 payload: { event_id: '${data.event_id}', status: 'confirmed' },
               },
-            },
-          ],
+            })
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'dynamic-flow.ts:generateBookingDynamicFlowJson:SUCCESS',message:'G1-success-children',data:{childTypes:content.map((c:any)=>c?.type),childTexts:content.filter((c:any)=>c?.text).map((c:any)=>String(c?.text).substring(0,50))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+            // #endregion
+            return content
+          })(),
         },
       },
     ],

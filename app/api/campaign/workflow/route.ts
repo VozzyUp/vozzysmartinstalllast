@@ -493,13 +493,14 @@ async function updateContactStatus(
 
 // Upstash Workflow - Durable background processing
 // Each step is a separate HTTP request, bypasses Vercel 10s timeout
-export const { POST } = serve<CampaignWorkflowInput>(
+const workflowHandler = serve<CampaignWorkflowInput>(
   async (context) => {
     const { campaignId, templateName, contacts, templateVariables, phoneNumberId, accessToken, templateSnapshot, traceId: incomingTraceId } = context.requestPayload
 
     const traceId = (incomingTraceId && String(incomingTraceId).trim().length > 0)
       ? String(incomingTraceId).trim()
       : `wf_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
 
     await emitWorkflowTrace({
       traceId,
@@ -554,11 +555,13 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
       const startedAt = (existing as any)?.startedAt || nowIso
 
+
       await campaignDb.updateStatus(campaignId, {
         status: CampaignStatus.SENDING,
         startedAt,
         completedAt: null,
       })
+
 
       console.log(`📊 Campaign ${campaignId} started with ${contacts.length} contacts (traceId=${traceId})`)
       console.log(`📝 Template variables: ${JSON.stringify(templateVariables || [])}`)
@@ -587,6 +590,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex]
+
 
       await context.run(`send-batch-${batchIndex}`, async () => {
         const step = `send-batch-${batchIndex}`
@@ -1248,6 +1252,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
           if (claimedAt && !firstDispatchAtInBatch) firstDispatchAtInBatch = claimedAt
 
+
           await emitWorkflowTrace({
             traceId,
             campaignId,
@@ -1341,6 +1346,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
                   traceId,
                 },
               })
+
 
               await emitWorkflowTrace({
                 traceId,
@@ -1484,6 +1490,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
             let response: Response
             let data: any
             try {
+
               await emitWorkflowTrace({
                 traceId,
                 campaignId,
@@ -1517,8 +1524,10 @@ export const { POST } = serve<CampaignWorkflowInput>(
             const metaMs = Date.now() - metaStart
             metaTimeMs += metaMs
 
+
             if (response.ok && data.messages?.[0]?.id) {
               const messageId = data.messages[0].id
+
 
               // CRÍTICO: persistir imediatamente o message_id.
               // Caso contrário, o webhook de delivered/read pode chegar ANTES do bulk upsert,
@@ -2023,6 +2032,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
           await Promise.allSettled(workers)
 
+
           // Garante que qualquer delta pendente seja publicado antes de finalizar o batch.
           try {
             await progress.flush()
@@ -2342,6 +2352,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
         console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: ${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped`)
       })
 
+
       if (shouldStopWorkflow === 'cancelled') break
     }
 
@@ -2547,3 +2558,40 @@ export const { POST } = serve<CampaignWorkflowInput>(
     retries: 3,
   }
 )
+
+export async function POST(request: Request) {
+  const signature =
+    request.headers.get('upstash-signature') ||
+    request.headers.get('Upstash-Signature') ||
+    null
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || ''
+  const proto = request.headers.get('x-forwarded-proto') || 'https'
+  const isLoopback =
+    host.includes('localhost') ||
+    host.includes('127.0.0.1') ||
+    host.includes('::1')
+  const baseUrl = host && !isLoopback ? `${proto}://${host}` : null
+  if (baseUrl && !process.env.UPSTASH_WORKFLOW_URL) {
+    process.env.UPSTASH_WORKFLOW_URL = baseUrl
+  }
+  if (baseUrl && !process.env.QSTASH_WORKFLOW_URL) {
+    process.env.QSTASH_WORKFLOW_URL = baseUrl
+  }
+  const url = new URL(request.url)
+  const shouldRewrite = baseUrl && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+  const targetUrl = shouldRewrite
+    ? `${baseUrl}${url.pathname}${url.search}`
+    : request.url
+
+  if (shouldRewrite) {
+    request = new Request(targetUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      duplex: 'half',
+    })
+  }
+
+  const response = await (workflowHandler as any).POST(request)
+  return response
+}

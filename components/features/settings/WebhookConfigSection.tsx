@@ -56,6 +56,7 @@ export function WebhookConfigSection({
   const [selectedDomainUrl, setSelectedDomainUrl] = useState<string>('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSavingOverride, setIsSavingOverride] = useState(false);
+  const [isTestingUrl, setIsTestingUrl] = useState(false);
 
   // Computed webhook URL based on domain selection
   const defaultPath = '/api/webhook';
@@ -111,6 +112,33 @@ export function WebhookConfigSection({
     return success;
   };
 
+  const handleTestUrl = async () => {
+    if (!computedWebhookUrl || !webhookToken) {
+      toast.error('Webhook URL ou token ausente');
+      return;
+    }
+    setIsTestingUrl(true);
+    try {
+      const res = await fetch('/api/debug/webhook/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: computedWebhookUrl, token: webhookToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        toast.success('Webhook OK!', { description: 'A URL respondeu corretamente.' });
+        return;
+      }
+      const status = data?.status ? `status ${data.status}` : 'Falha';
+      const hint = data?.message || data?.error || 'Resposta inválida';
+      toast.error(`Webhook não respondeu (${status})`, { description: hint });
+    } catch {
+      toast.error('Erro ao testar URL do webhook');
+    } finally {
+      setIsTestingUrl(false);
+    }
+  };
+
   return (
     <div className="glass-panel rounded-2xl p-8">
       {/* Header */}
@@ -146,6 +174,9 @@ export function WebhookConfigSection({
         onDomainChange={setSelectedDomainUrl}
         copiedField={copiedField}
         onCopy={handleCopy}
+        onTestUrl={handleTestUrl}
+        isTestingUrl={isTestingUrl}
+        showTestUrl={process.env.NODE_ENV === 'development'}
       />
 
       {/* Meta Subscription Status */}

@@ -3,6 +3,23 @@ import "server-only";
 import { Client as QStashClient } from "@upstash/qstash";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+const NGROK_API = 'http://127.0.0.1:4040/api'
+
+async function getNgrokPublicUrl(): Promise<string | null> {
+  try {
+    const res = await fetch(`${NGROK_API}/tunnels`, { method: 'GET' })
+    if (!res.ok) return null
+    const data = (await res.json()) as { tunnels?: Array<{ public_url?: string; proto?: string }> }
+    const tunnels = Array.isArray(data?.tunnels) ? data.tunnels : []
+    const https = tunnels.find((t) => String(t?.proto || '').toLowerCase() === 'https' && t.public_url)
+    if (https?.public_url) return https.public_url
+    const any = tunnels.find((t) => t.public_url)
+    return any?.public_url ? String(any.public_url) : null
+  } catch {
+    return null
+  }
+}
+
 type ScheduleConfig = {
   workflowId: string;
   cron: string;
@@ -36,7 +53,9 @@ export async function syncWorkflowSchedule(config: ScheduleConfig) {
     }
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const isDev = process.env.NODE_ENV === 'development'
+  const devNgrokUrl = isDev ? await getNgrokPublicUrl() : null
+  const baseUrl = devNgrokUrl || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const schedule = await qstash.publishJSON({
     url: `${baseUrl}/api/builder/workflow/${config.workflowId}/execute`,
     body: {
