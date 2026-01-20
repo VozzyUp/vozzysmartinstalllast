@@ -1688,7 +1688,7 @@ export default function CampaignsNewRealPage() {
 
                   <div className="mt-5 space-y-5">
                     {templateSpecError && (
-                      <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-200">
+                      <div className="rounded-xl border border-amber-400 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-200">
                         <div className="font-semibold">Template com contrato inválido</div>
                         <div className="mt-1 text-xs text-amber-700 dark:text-amber-200/80">{templateSpecError}</div>
                       </div>
@@ -1702,7 +1702,7 @@ export default function CampaignsNewRealPage() {
                       <div className="space-y-3">
                           {templateVars.header.map((item, index) => (
                             <div key={item.key} className="flex items-center gap-3">
-                              <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+                              <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
                                 {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
@@ -1712,7 +1712,7 @@ export default function CampaignsNewRealPage() {
                                   placeholder={`Variável do cabeçalho (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
                                     !item.value.trim() && item.required
-                                      ? 'border-amber-400/40'
+                                      ? 'border-amber-400 dark:border-amber-400/40'
                                       : 'border-[var(--ds-border-default)]'
                                   }`}
                                 />
@@ -1797,7 +1797,7 @@ export default function CampaignsNewRealPage() {
                         <div className="space-y-3">
                           {templateVars.body.map((item, index) => (
                             <div key={`${item.key}-${index}`} className="flex items-center gap-3">
-                              <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+                              <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
                                 {item.placeholder}
                               </span>
                               <div className="relative flex flex-1 items-center">
@@ -1807,7 +1807,7 @@ export default function CampaignsNewRealPage() {
                                   placeholder={`Variável do corpo (${item.placeholder})`}
                                   className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
                                     !item.value.trim() && item.required
-                                      ? 'border-amber-400/40'
+                                      ? 'border-amber-400 dark:border-amber-400/40'
                                       : 'border-[var(--ds-border-default)]'
                                   }`}
                                 />
@@ -1905,14 +1905,14 @@ export default function CampaignsNewRealPage() {
                                     const value = templateButtonVars[`button_${b.index}_${k}`] || ''
                                     return (
                                       <div key={`btn-${b.index}-${k}`} className="flex items-center gap-3">
-                                        <span className="rounded-lg bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">{id}</span>
+                                        <span className="rounded-lg bg-amber-100 dark:bg-amber-500/20 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">{id}</span>
                                         <div className="relative flex flex-1 items-center">
                                           <input
                                             value={value}
                                             onChange={(event) => setButtonVarValue(b.index, k, event.target.value)}
                                             placeholder={`Variável do botão (${id})`}
                                             className={`w-full rounded-xl border bg-[var(--ds-bg-elevated)] px-4 py-2 pr-10 text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)] ${
-                                              !value.trim() ? 'border-amber-400/40' : 'border-[var(--ds-border-default)]'
+                                              !value.trim() ? 'border-amber-400 dark:border-amber-400/40' : 'border-[var(--ds-border-default)]'
                                             }`}
                                           />
                                           <DropdownMenu>
@@ -2086,7 +2086,7 @@ export default function CampaignsNewRealPage() {
                       </SheetHeader>
                       <div className="space-y-4 p-6">
                         {!isBrSelected && (
-                          <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
+                          <div className="rounded-lg border border-amber-300 dark:border-amber-400/20 bg-amber-100 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
                             Selecione BR no DDI para habilitar as UFs.
                           </div>
                         )}
@@ -2483,7 +2483,7 @@ export default function CampaignsNewRealPage() {
                           }}
                           className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                             bulkKeys.length
-                              ? 'border-amber-500/20 bg-[var(--ds-bg-elevated)] text-amber-700 dark:text-amber-200 hover:bg-amber-500/10 hover:border-amber-500/40'
+                              ? 'border-amber-400 dark:border-amber-500/20 bg-[var(--ds-bg-elevated)] text-amber-700 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-500/15 hover:border-amber-500 dark:hover:border-amber-500/40'
                               : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
                           }`}
                         >
@@ -2600,7 +2600,7 @@ export default function CampaignsNewRealPage() {
                             disabled={bulkLoading}
                             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
                               !bulkLoading
-                                ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-500/15 hover:border-amber-500/50'
+                                ? 'border-amber-400 dark:border-amber-500/30 bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-500/15 hover:border-amber-500 dark:hover:border-amber-500/50'
                                 : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-elevated)] text-[var(--ds-text-muted)]'
                             }`}
                           >

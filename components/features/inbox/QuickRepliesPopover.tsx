@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo } from 'react'
-import { Zap, Search, Plus, X } from 'lucide-react'
+import { MessageSquareDashed, Search, Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -58,22 +58,22 @@ export function QuickRepliesPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-zinc-400 hover:text-zinc-200"
+              className="h-9 w-9 text-zinc-400 hover:text-zinc-200"
             >
-              <Zap className="h-4 w-4" />
+              <MessageSquareDashed className="h-4 w-4" />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Respostas rápidas</p>
-          </TooltipContent>
-        </Tooltip>
-      </PopoverTrigger>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Respostas rápidas</p>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         align="start"
         side="top"

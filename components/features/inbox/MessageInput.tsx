@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { Send, Loader2, Sparkles, Zap } from 'lucide-react'
+import { Send, Loader2, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -192,7 +192,7 @@ export function MessageInput({
                 {isLoadingSuggestion ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Zap className="h-4 w-4" />
+                  <Sparkles className="h-4 w-4" />
                 )}
               </button>
             </TooltipTrigger>
