@@ -125,11 +125,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    // Create Google provider (DevTools disabled temporarily for debugging)
+    // Create Google provider with DevTools support
     const google = createGoogleGenerativeAI({ apiKey })
     const modelId = agent.model || DEFAULT_MODEL_ID
-    const model = google(modelId)
-    // const model = await withDevTools(baseModel, { name: `agent-test:${agent.name}` })
+    const baseModel = google(modelId)
+    const model = await withDevTools(baseModel, { name: `agent-test:${agent.name}` })
 
     console.log(`[ai-agents/test] Using model: ${modelId}`)
 
