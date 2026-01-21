@@ -92,4 +92,42 @@ INPUT: "Lançamento do meu novo curso de Excel Avançado, 12 módulos, certifica
 
 **Exemplo 4 - Reengajamento:**
 INPUT: "Clientes que não compram há 30 dias, oferecer cupom de 15% para voltar, válido por 48h"
-`;
+
+---
+
+## INPUT DO USUÁRIO
+"{{prompt}}"
+
+## LINGUAGEM
+Escreva em {{language}}.
+
+## URL DO BOTÃO
+Use este link em TODOS os templates: {{primaryUrl}}
+
+## GERE {{quantity}} TEMPLATES
+Varie: headlines diferentes, gatilhos mentais diferentes, tons (formal, casual, divertido).
+Cada template deve ter uma abordagem única para o mesmo produto/oferta.
+
+## REGRAS TÉCNICAS
+- Variáveis: APENAS números {{1}}, {{2}}, etc. (sequenciais)
+- {{1}} = nome do cliente (OBRIGATÓRIO em todos os templates)
+- Header: máximo 60 caracteres (headline impactante)
+- Body: máximo 1024 caracteres (ideal: 200-400)
+- Footer: máximo 60 caracteres (opcional)
+- Botão: máximo 25 caracteres (CTA forte!)
+- Nome: snake_case, apenas letras minúsculas e underscore
+
+## FORMATO JSON (retorne APENAS JSON válido, sem markdown, sem explicações)
+[
+  {
+    "name": "nome_snake_case_descritivo",
+    "content": "Texto persuasivo do body com emojis e formatação",
+    "header": { "format": "TEXT", "text": "Headline impactante 🔥" },
+    "footer": { "text": "Responda SAIR para cancelar." },
+    "buttons": [
+      { "type": "URL", "text": "CTA Forte Aqui", "url": "{{primaryUrl}}" }
+    ]
+  }
+]
+
+NOTA: header e footer são opcionais, mas buttons é OBRIGATÓRIO para MARKETING.`;

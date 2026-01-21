@@ -75,35 +75,44 @@ export function CalendarBookingPanel({
         </div>
       </div>
 
-      {/* Resumo compacto quando conectado */}
-      {isConfigured && !isExpanded && (
+      {/* Resumo compacto quando colapsado */}
+      {!isExpanded && (
         <div className="mt-4 flex items-center justify-between p-4 rounded-xl bg-[var(--ds-bg-elevated)] border border-[var(--ds-border-default)]">
-          <div className="flex items-center gap-6 text-sm">
-            <div>
-              <span className="text-[var(--ds-text-muted)]">Calendario:</span>{' '}
-              <span className="text-[var(--ds-text-primary)]">{hook.calendarAuthStatus?.calendar?.calendarSummary}</span>
+          {isConfigured ? (
+            // Conectado: mostra resumo da config
+            <div className="flex items-center gap-6 text-sm">
+              <div>
+                <span className="text-[var(--ds-text-muted)]">Calendario:</span>{' '}
+                <span className="text-[var(--ds-text-primary)]">{hook.calendarAuthStatus?.calendar?.calendarSummary}</span>
+              </div>
+              <div>
+                <span className="text-[var(--ds-text-muted)]">Slots:</span>{' '}
+                <span className="text-[var(--ds-text-primary)]">{hook.calendarDraft.slotDurationMinutes}min</span>
+              </div>
+              <div>
+                <span className="text-[var(--ds-text-muted)]">Dias:</span>{' '}
+                <span className="text-[var(--ds-text-primary)]">{enabledDayLabels || 'Nenhum'}</span>
+              </div>
             </div>
-            <div>
-              <span className="text-[var(--ds-text-muted)]">Slots:</span>{' '}
-              <span className="text-[var(--ds-text-primary)]">{hook.calendarDraft.slotDurationMinutes}min</span>
+          ) : (
+            // Desconectado: mostra status e CTA
+            <div className="flex items-center gap-3 text-sm">
+              <StatusBadge status="warning" showDot>Desconectado</StatusBadge>
+              <span className="text-[var(--ds-text-muted)]">Conecte o Google Calendar para habilitar agendamentos</span>
             </div>
-            <div>
-              <span className="text-[var(--ds-text-muted)]">Dias:</span>{' '}
-              <span className="text-[var(--ds-text-primary)]">{enabledDayLabels || 'Nenhum'}</span>
-            </div>
-          </div>
+          )}
           <button
             type="button"
             onClick={() => setIsExpanded(true)}
             className="text-sm text-[var(--ds-status-success-text)] hover:opacity-80 flex items-center gap-1"
           >
-            Expandir <ChevronDown size={16} />
+            {isConfigured ? 'Expandir' : 'Configurar'} <ChevronDown size={16} />
           </button>
         </div>
       )}
 
       {/* Conteúdo expandido */}
-      {(!isConfigured || isExpanded) && (
+      {isExpanded && (
         <>
           {/* Calendar Status Section */}
           <CalendarStatusSection
@@ -132,17 +141,15 @@ export function CalendarBookingPanel({
           />
 
           {/* Botão de colapsar */}
-          {isConfigured && (
-            <div className="mt-6 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setIsExpanded(false)}
-                className="text-sm text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] flex items-center gap-1"
-              >
-                <ChevronUp size={16} /> Recolher
-              </button>
-            </div>
-          )}
+          <div className="mt-6 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setIsExpanded(false)}
+              className="text-sm text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] flex items-center gap-1"
+            >
+              <ChevronUp size={16} /> Recolher
+            </button>
+          </div>
         </>
       )}
 

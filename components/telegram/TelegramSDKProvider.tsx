@@ -95,52 +95,82 @@ export function TelegramSDKProvider({ children }: TelegramSDKProviderProps) {
     const tg = window.Telegram?.WebApp;
 
     if (tg) {
+      // Verificar se realmente estamos dentro do Telegram
+      // Se platform é 'unknown' ou vazio, estamos no browser normal
+      const isRealTelegram = tg.platform && tg.platform !== 'unknown';
+
+      if (!isRealTelegram) {
+        console.log('📱 Telegram SDK loaded but running in browser (mock mode)');
+        setIsMock(true);
+        setIsReady(true);
+        return;
+      }
+
       setIsMock(false);
       console.log('📱 Telegram WebApp detected, version:', tg.version, 'platform:', tg.platform);
 
       // Sinalizar que estamos prontos
       tg.ready();
 
-      // Função para expandir e tentar fullscreen
+      // Função para expandir e tentar fullscreen (com tratamento defensivo)
       const setupViewport = () => {
-        // Expandir para altura máxima
-        tg.expand();
-
-        // Configurar cores do header e background para dark
+        // Expandir para altura máxima (sempre suportado)
         try {
-          tg.setHeaderColor('#18181b'); // zinc-900
-          tg.setBackgroundColor('#18181b'); // zinc-900
+          tg.expand();
         } catch (e) {
-          console.log('setHeaderColor/setBackgroundColor not supported');
+          console.log('expand() failed:', e);
         }
 
-        // Tentar fullscreen (Bot API 8.0+)
-        try {
-          if (typeof tg.requestFullscreen === 'function') {
-            tg.requestFullscreen();
-            console.log('📱 Fullscreen requested');
-          } else {
-            console.log('📱 Fullscreen not available in this version');
+        // Verificar versão para evitar erros
+        const version = parseFloat(tg.version) || 0;
+        console.log(`📱 Telegram version: ${version}`);
+
+        // setHeaderColor e setBackgroundColor (Bot API 6.1+)
+        if (version >= 6.1) {
+          try {
+            if (typeof tg.setHeaderColor === 'function') {
+              tg.setHeaderColor('#18181b');
+            }
+            if (typeof tg.setBackgroundColor === 'function') {
+              tg.setBackgroundColor('#18181b');
+            }
+          } catch (e) {
+            // Silenciosamente ignorar - não quebrar o app
           }
-        } catch (e) {
-          console.log('Fullscreen error:', e);
         }
 
-        // Desabilitar swipe para fechar (Bot API 7.7+)
-        try {
-          if (typeof tg.disableVerticalSwipes === 'function') {
-            tg.disableVerticalSwipes();
+        // requestFullscreen (Bot API 8.0+)
+        if (version >= 8.0) {
+          try {
+            if (typeof tg.requestFullscreen === 'function') {
+              tg.requestFullscreen();
+              console.log('📱 Fullscreen requested');
+            }
+          } catch (e) {
+            // Silenciosamente ignorar
           }
-        } catch (e) {
-          console.log('disableVerticalSwipes not supported');
+        }
+
+        // disableVerticalSwipes (Bot API 7.7+)
+        if (version >= 7.7) {
+          try {
+            if (typeof tg.disableVerticalSwipes === 'function') {
+              tg.disableVerticalSwipes();
+            }
+          } catch (e) {
+            // Silenciosamente ignorar
+          }
         }
       };
 
       // Executar imediatamente
       setupViewport();
 
-      // Tentar novamente após 500ms (às vezes precisa de delay)
-      setTimeout(setupViewport, 500);
+      // Tentar novamente após 500ms apenas se versão suporta recursos avançados
+      const version = parseFloat(tg.version) || 0;
+      if (version >= 7.0) {
+        setTimeout(setupViewport, 500);
+      }
 
       // Forçar dark mode independente do Telegram
       setIsDark(true);

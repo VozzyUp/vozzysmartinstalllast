@@ -429,6 +429,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('AI Error:', error)
+    console.error('AI Error Stack:', error instanceof Error ? error.stack : 'No stack')
     if (error instanceof MissingAIKeyError) {
       return NextResponse.json(
         {

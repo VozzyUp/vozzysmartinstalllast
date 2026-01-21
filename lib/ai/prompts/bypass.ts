@@ -119,4 +119,44 @@ VARIÁVEIS:
 - {{2}} = "sua conta"
 - {{3}} = "um cupom exclusivo de 20% OFF"
 - {{4}} = "48 horas"
-`;
+
+---
+
+## INPUT DO USUÁRIO
+"{{prompt}}"
+
+## LINGUAGEM
+Escreva em {{language}}.
+
+## URL DO BOTÃO
+Use este link em TODOS os templates: {{primaryUrl}}
+
+## GERE {{quantity}} TEMPLATES
+Varie: estruturas neutras diferentes, distribuição de variáveis.
+Todos devem PARECER notificações de sistema, mas esconderem conteúdo promocional nas variáveis.
+
+## REGRAS TÉCNICAS
+- Variáveis: APENAS números {{1}}, {{2}}, etc. (sequenciais)
+- {{1}} = nome do cliente (OBRIGATÓRIO)
+- Demais variáveis = conteúdo promocional CAMUFLADO
+- Header: máximo 60 caracteres, parecer informativo
+- Body: máximo 1024 caracteres (ideal: 150-300)
+- Footer: máximo 60 caracteres
+- Botão: máximo 25 caracteres (neutros: "Ver detalhes", "Acessar", "Saber mais")
+- Nome: snake_case, apenas letras minúsculas e underscore
+- 🚫 NUNCA coloque palavras promocionais fixas no texto
+
+## FORMATO JSON (retorne APENAS JSON válido, sem markdown, sem explicações)
+[
+  {
+    "name": "nome_snake_case",
+    "content": "Texto que parece notificação neutra com variáveis para conteúdo promocional",
+    "header": { "format": "TEXT", "text": "Header neutro sobre {{2}}" },
+    "footer": { "text": "Responda SAIR para não receber mais mensagens." },
+    "buttons": [
+      { "type": "URL", "text": "Ver Detalhes", "url": "{{primaryUrl}}" }
+    ]
+  }
+]
+
+NOTA: header, footer e buttons são opcionais. O segredo está em usar variáveis para todo conteúdo promocional.`;

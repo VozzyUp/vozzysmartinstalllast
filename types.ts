@@ -801,3 +801,39 @@ export interface CreateCampaignTagDTO {
   name: string;
   color?: string;
 }
+
+// =============================================================================
+// ATTENDANT TOKENS (Web Monitor Access)
+// =============================================================================
+
+export interface AttendantPermissions {
+  canView: boolean;      // Pode ver conversas
+  canReply: boolean;     // Pode responder mensagens
+  canHandoff: boolean;   // Pode fazer handoff/transferir
+}
+
+export interface AttendantToken {
+  id: string;
+  name: string;                      // Nome do atendente
+  token: string;                     // Token para URL
+  permissions: AttendantPermissions;
+  is_active: boolean;
+  last_used_at: string | null;
+  access_count: number;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAttendantTokenDTO {
+  name: string;
+  permissions?: Partial<AttendantPermissions>;
+  expires_at?: string | null;
+}
+
+export interface UpdateAttendantTokenDTO {
+  name?: string;
+  permissions?: Partial<AttendantPermissions>;
+  is_active?: boolean;
+  expires_at?: string | null;
+}

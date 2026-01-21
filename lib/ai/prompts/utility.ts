@@ -111,4 +111,43 @@ INPUT: "Lembrar sobre fatura que vence em 3 dias. Mostrar valor e data de vencim
 
 **Exemplo 6 - Liberação de Acesso:**
 INPUT: "Avisar que o acesso ao curso foi liberado. Mostrar nome do curso e link para acessar a plataforma."
-`;
+
+---
+
+## INPUT DO USUÁRIO
+"{{prompt}}"
+
+## LINGUAGEM
+Escreva em {{language}}.
+
+## URL DO BOTÃO
+Use este link em TODOS os templates: {{primaryUrl}}
+
+## GERE {{quantity}} TEMPLATES
+Varie: estruturas diferentes, níveis de detalhe diferentes, com/sem header.
+Todos devem ser NEUTROS e TRANSACIONAIS.
+
+## REGRAS TÉCNICAS
+- Variáveis: APENAS números {{1}}, {{2}}, etc. (sequenciais)
+- {{1}} = nome do cliente (OBRIGATÓRIO)
+- Header: máximo 60 caracteres, informativo
+- Body: máximo 1024 caracteres (ideal: 150-300)
+- Footer: máximo 60 caracteres
+- Botão: máximo 25 caracteres (verbos neutros: Ver, Acessar, Rastrear)
+- Nome: snake_case, apenas letras minúsculas e underscore
+- 🚫 NUNCA comece ou termine texto com variável
+
+## FORMATO JSON (retorne APENAS JSON válido, sem markdown, sem explicações)
+[
+  {
+    "name": "nome_snake_case",
+    "content": "Texto neutro e transacional com dados específicos",
+    "header": { "format": "TEXT", "text": "Header informativo" },
+    "footer": { "text": "Responda SAIR para não receber mais mensagens." },
+    "buttons": [
+      { "type": "URL", "text": "Ver Detalhes", "url": "{{primaryUrl}}" }
+    ]
+  }
+]
+
+NOTA: header, footer e buttons são opcionais. Inclua quando fizer sentido.`;

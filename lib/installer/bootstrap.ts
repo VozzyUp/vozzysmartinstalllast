@@ -7,6 +7,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { generateKeyPair } from '@/lib/whatsapp/flow-endpoint-crypto';
 
 type BootstrapInput = {
   supabaseUrl: string;
@@ -90,12 +91,20 @@ export async function bootstrapInstance({
   // Nota: company_name é necessário para isSetupComplete() retornar true
   // Usa o nome do admin se fornecido, senão extrai do email como fallback
   const companyName = adminName?.trim() || emailNorm.split('@')[0] || 'SmartZap';
+
+  // Gera chaves RSA para o Flow Endpoint (MiniApp Dinâmico)
+  // Isso evita erro ao publicar Flows que usam endpoint dinâmico
+  const flowKeys = generateKeyPair();
+
   const initialSettings = [
     { key: 'admin_email', value: emailNorm },
     { key: 'admin_name', value: adminName?.trim() || '' },
     { key: 'company_name', value: companyName },
     { key: 'installation_date', value: new Date().toISOString() },
     { key: 'version', value: '1.0.0' },
+    // Flow Endpoint keys - geradas automaticamente para evitar erros de publicação
+    { key: 'whatsapp_flow_private_key', value: flowKeys.privateKey },
+    { key: 'whatsapp_flow_public_key', value: flowKeys.publicKey },
   ];
 
   for (const setting of initialSettings) {

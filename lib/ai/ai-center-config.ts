@@ -81,16 +81,17 @@ function normalizeBasePrompts(input?: Partial<AiPromptsConfig> | null): Omit<AiP
   }
 }
 
-// Normaliza prompts de estratégia (fonte única: banco, SEM fallback de código)
+// Normaliza prompts de estratégia (banco tem prioridade, código é fallback)
 function normalizeStrategyPrompts(strategies: {
   marketing: string | null
   utility: string | null
   bypass: string | null
 }): Pick<AiPromptsConfig, 'strategyMarketing' | 'strategyUtility' | 'strategyBypass'> {
   return {
-    strategyMarketing: strategies.marketing || '',
-    strategyUtility: strategies.utility || '',
-    strategyBypass: strategies.bypass || '',
+    // Se banco vazio, usa prompt do código como fallback
+    strategyMarketing: strategies.marketing || DEFAULT_AI_PROMPTS.strategyMarketing,
+    strategyUtility: strategies.utility || DEFAULT_AI_PROMPTS.strategyUtility,
+    strategyBypass: strategies.bypass || DEFAULT_AI_PROMPTS.strategyBypass,
   }
 }
 
