@@ -98,6 +98,8 @@ export interface GeneratedTemplate {
         issues: Array<{ type: string; reason: string }>
     }
     wasFixed?: boolean
+    // Valores de exemplo para variáveis (usado em BYPASS para preview com conteúdo promocional)
+    variables?: Record<string, string>
 }
 
 export interface AgentGenerationResult {

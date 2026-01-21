@@ -5,10 +5,61 @@
  * Usado pelos agentes de IA para suportar múltiplos providers com a mesma interface.
  *
  * O Vercel AI SDK garante que tools funcionam de forma idêntica em todos os providers.
+ *
+ * Suporta Helicone como proxy para observability (configurável via settings).
  */
 
 import type { LanguageModel } from 'ai'
 import { getSupabaseAdmin } from '@/lib/supabase'
+
+// =============================================================================
+// Helicone Configuration
+// =============================================================================
+
+// Helicone gateway config por provider
+// Para Google: usar gateway genérico + Helicone-Target-URL header
+// Para OpenAI/Anthropic: usar gateways dedicados
+const HELICONE_GATEWAYS: Record<AIProvider, { baseURL: string; targetURL?: string }> = {
+  google: {
+    baseURL: 'https://gateway.helicone.ai/v1beta',
+    targetURL: 'https://generativelanguage.googleapis.com/v1beta',
+  },
+  openai: {
+    baseURL: 'https://oai.helicone.ai/v1',
+  },
+  anthropic: {
+    baseURL: 'https://anthropic.helicone.ai/v1',
+  },
+}
+
+/**
+ * Busca configuração do Helicone do banco de dados.
+ * Retorna null se não configurado ou desabilitado.
+ */
+async function getHeliconeConfig(): Promise<{ apiKey: string } | null> {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return null
+
+  try {
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('key, value')
+      .in('key', ['helicone_enabled', 'helicone_api_key'])
+
+    if (!settings || settings.length === 0) return null
+
+    const configMap = Object.fromEntries(settings.map(s => [s.key, s.value]))
+    const enabled = configMap['helicone_enabled'] === 'true'
+    const apiKey = configMap['helicone_api_key']
+
+    if (!enabled || !apiKey) return null
+
+    return { apiKey }
+  } catch (error) {
+    console.error('[provider-factory] Error fetching Helicone config:', error)
+    return null
+  }
+}
 
 // =============================================================================
 // Types
@@ -99,23 +150,67 @@ export async function createLanguageModel(
 
   let model: LanguageModel
 
+  // Fetch Helicone config from database
+  const heliconeConfig = await getHeliconeConfig()
+  const heliconeEnabled = heliconeConfig !== null
+
+  // Build Helicone headers if enabled (per-provider)
+  const buildHeliconeHeaders = (prov: AIProvider) => {
+    if (!heliconeConfig) return undefined
+    const gateway = HELICONE_GATEWAYS[prov]
+    return {
+      'Helicone-Auth': `Bearer ${heliconeConfig.apiKey}`,
+      ...(gateway.targetURL && { 'Helicone-Target-URL': gateway.targetURL }),
+    }
+  }
+
   switch (provider) {
     case 'google': {
       const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-      const google = createGoogleGenerativeAI({ apiKey })
+      const heliconeHeaders = buildHeliconeHeaders('google')
+      const google = createGoogleGenerativeAI({
+        apiKey,
+        ...(heliconeEnabled && {
+          baseURL: HELICONE_GATEWAYS.google.baseURL,
+          headers: heliconeHeaders,
+        }),
+      })
       model = google(modelId)
+      if (heliconeEnabled) {
+        console.log(`[provider-factory] Helicone proxy enabled for Google`)
+      }
       break
     }
     case 'openai': {
       const { createOpenAI } = await import('@ai-sdk/openai')
-      const openai = createOpenAI({ apiKey })
+      const heliconeHeaders = buildHeliconeHeaders('openai')
+      const openai = createOpenAI({
+        apiKey,
+        ...(heliconeEnabled && {
+          baseURL: HELICONE_GATEWAYS.openai.baseURL,
+          headers: heliconeHeaders,
+        }),
+      })
       model = openai(modelId)
+      if (heliconeEnabled) {
+        console.log(`[provider-factory] Helicone proxy enabled for OpenAI`)
+      }
       break
     }
     case 'anthropic': {
       const { createAnthropic } = await import('@ai-sdk/anthropic')
-      const anthropic = createAnthropic({ apiKey })
+      const heliconeHeaders = buildHeliconeHeaders('anthropic')
+      const anthropic = createAnthropic({
+        apiKey,
+        ...(heliconeEnabled && {
+          baseURL: HELICONE_GATEWAYS.anthropic.baseURL,
+          headers: heliconeHeaders,
+        }),
+      })
       model = anthropic(modelId)
+      if (heliconeEnabled) {
+        console.log(`[provider-factory] Helicone proxy enabled for Anthropic`)
+      }
       break
     }
     default:

@@ -195,8 +195,8 @@ export default function NewTemplateProjectPage() {
     // Preview State - hover mostra variáveis preenchidas
     const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-    // Valores de exemplo para substituir variáveis no preview
-    const EXAMPLE_VALUES: Record<string, string> = {
+    // Valores de exemplo padrão para substituir variáveis no preview
+    const DEFAULT_EXAMPLE_VALUES: Record<string, string> = {
         '1': 'João Silva',
         '2': 'Pedido #12345',
         '3': '25/01/2025',
@@ -206,9 +206,11 @@ export default function NewTemplateProjectPage() {
     };
 
     // Substitui {{N}} por valores de exemplo
-    const fillVariables = (text: string): string => {
+    // Usa os valores do campo `variables` do template (gerado pela IA) quando disponível
+    const fillVariables = (text: string, templateVariables?: Record<string, string>): string => {
         return text.replace(/\{\{(\d+)\}\}/g, (_, num) => {
-            return EXAMPLE_VALUES[num] || `[Variável ${num}]`;
+            // Prioridade: valores gerados pela IA > valores padrão
+            return templateVariables?.[num] || DEFAULT_EXAMPLE_VALUES[num] || `[Variável ${num}]`;
         });
     };
 
@@ -526,7 +528,7 @@ export default function NewTemplateProjectPage() {
                                     {t.header && (
                                         <div className="mt-1 font-semibold text-sm text-[var(--ds-text-primary)]">
                                             {t.header.text
-                                                ? (isHovered ? fillVariables(t.header.text) : t.header.text)
+                                                ? (isHovered ? fillVariables(t.header.text, t.variables) : t.header.text)
                                                 : `[Mídia: ${t.header.format}]`}
                                         </div>
                                     )}
@@ -534,7 +536,7 @@ export default function NewTemplateProjectPage() {
 
                                 {/* Body */}
                                 <div className={`text-sm whitespace-pre-wrap mb-4 transition-colors ${isHovered ? 'text-emerald-300' : 'text-[var(--ds-text-secondary)]'}`}>
-                                    {isHovered ? fillVariables(t.content) : t.content}
+                                    {isHovered ? fillVariables(t.content, t.variables) : t.content}
                                 </div>
 
                                 {/* Footer */}

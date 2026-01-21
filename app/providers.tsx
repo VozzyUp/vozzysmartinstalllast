@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { RealtimeProvider } from '@/components/providers/RealtimeProvider'
 import { CentralizedRealtimeProvider } from '@/components/providers/CentralizedRealtimeProvider'
 import { DevModeProvider } from '@/components/providers/DevModeProvider'
+import { PWAProvider } from '@/components/pwa'
 import { useState } from 'react'
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -36,7 +37,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <DevModeProvider>
           <RealtimeProvider>
             <CentralizedRealtimeProvider>
-              {children}
+              <PWAProvider>
+                {children}
+              </PWAProvider>
             </CentralizedRealtimeProvider>
           </RealtimeProvider>
         </DevModeProvider>

@@ -41,6 +41,8 @@ interface GeneratedTemplate {
   language: string
   status: string
   category: 'MARKETING' | 'UTILITY' // Definido pela strategy selecionada
+  // Valores de exemplo para variáveis (usado em BYPASS para preview)
+  variables?: Record<string, string>
   // AI Judge fields
   judgment?: {
     approved: boolean
@@ -167,6 +169,22 @@ function normalizeTemplate(
     }
   }
 
+  // Variables: valores de exemplo para preview (usado em BYPASS)
+  let variables: GeneratedTemplate['variables'] = undefined
+  if (rawTemplate.variables && typeof rawTemplate.variables === 'object') {
+    const vars = rawTemplate.variables as Record<string, unknown>
+    variables = {}
+    for (const [key, value] of Object.entries(vars)) {
+      if (typeof value === 'string') {
+        variables[key] = value
+      }
+    }
+    // Só incluir se tiver pelo menos uma variável
+    if (Object.keys(variables).length === 0) {
+      variables = undefined
+    }
+  }
+
   return {
     id: `generated_${Date.now()}_${index}`,
     name,
@@ -176,7 +194,8 @@ function normalizeTemplate(
     buttons,
     language,
     status: 'DRAFT',
-    category
+    category,
+    variables
   }
 }
 
@@ -192,9 +211,6 @@ async function generateWithUnifiedPrompt(
   promptTemplate: string,
   strategy: 'marketing' | 'utility' | 'bypass'
 ): Promise<GeneratedTemplate[]> {
-  console.log('[GENERATE] Building prompt with template length:', promptTemplate.length)
-  console.log('[GENERATE] Template preview (first 200 chars):', promptTemplate.substring(0, 200))
-
   const utilityPrompt = buildUtilityGenerationPrompt({
     prompt: userPrompt,
     quantity,
@@ -203,25 +219,13 @@ async function generateWithUnifiedPrompt(
     template: promptTemplate,
   })
 
-  console.log('[GENERATE] Final prompt length:', utilityPrompt.length)
-  console.log('[GENERATE] Final prompt (last 500 chars):', utilityPrompt.slice(-500))
-  console.log('[GENERATE] Calling generateJSON...')
+  const rawTemplates = await generateJSON<Array<Record<string, unknown>>>(
+    { prompt: utilityPrompt }
+  )
 
-  try {
-    const rawTemplates = await generateJSON<Array<Record<string, unknown>>>(
-      { prompt: utilityPrompt }
-    )
+  if (!Array.isArray(rawTemplates)) throw new Error('Response is not an array')
 
-    console.log('[GENERATE] generateJSON returned:', typeof rawTemplates, Array.isArray(rawTemplates) ? `array(${rawTemplates.length})` : rawTemplates)
-
-    if (!Array.isArray(rawTemplates)) throw new Error('Response is not an array')
-
-    return rawTemplates.map((t, index) => normalizeTemplate(t, index, language, primaryUrl, strategy))
-  } catch (error) {
-    console.error('[GENERATE] generateJSON failed:', error instanceof Error ? error.message : error)
-    console.error('[GENERATE] Full error:', error)
-    throw error
-  }
+  return rawTemplates.map((t, index) => normalizeTemplate(t, index, language, primaryUrl, strategy))
 }
 
 // ============================================================================
@@ -444,7 +448,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('AI Error:', error)
-    console.error('AI Error Stack:', error instanceof Error ? error.stack : 'No stack')
     if (error instanceof MissingAIKeyError) {
       return NextResponse.json(
         {
@@ -454,16 +457,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    // Debug: retornar detalhes do erro
     return NextResponse.json(
-      {
-        error: 'Falha ao gerar templates com IA',
-        debug: {
-          message: error instanceof Error ? error.message : String(error),
-          name: error instanceof Error ? error.name : 'Unknown',
-          stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5) : null,
-        }
-      },
+      { error: 'Falha ao gerar templates com IA' },
       { status: 500 }
     )
   }
