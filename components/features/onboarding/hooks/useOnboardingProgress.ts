@@ -32,9 +32,6 @@ export interface OnboardingProgress {
   isChecklistMinimized: boolean;
   isChecklistDismissed: boolean;
 
-  // Confirmações manuais (não verificáveis via API)
-  permanentTokenConfirmed: boolean;
-
   // Timestamps
   startedAt: string | null;
   completedAt: string | null;
@@ -48,7 +45,6 @@ const DEFAULT_PROGRESS: OnboardingProgress = {
   completedSteps: [],
   isChecklistMinimized: false,
   isChecklistDismissed: false,
-  permanentTokenConfirmed: false,
   startedAt: null,
   completedAt: null,
 };
@@ -211,13 +207,6 @@ export function useOnboardingProgress() {
     }));
   }, []);
 
-  const confirmPermanentToken = useCallback(() => {
-    setProgress(prev => ({
-      ...prev,
-      permanentTokenConfirmed: true,
-    }));
-  }, []);
-
   const resetOnboarding = useCallback(() => {
     setProgress(DEFAULT_PROGRESS);
     localStorage.removeItem(STORAGE_KEY);
@@ -294,7 +283,6 @@ export function useOnboardingProgress() {
     // Checklist UI
     minimizeChecklist,
     dismissChecklist,
-    confirmPermanentToken,
 
     // Reset
     resetOnboarding,

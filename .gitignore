@@ -38,12 +38,31 @@ yarn-debug.log*
 .idea
 *.sw?
 
-# Copilot/Claude agent tooling (dev-only)
+# AI/IDE agent tooling (dev-only, local configs)
 .agent/
 .claude/
+.agents/
+.Jules/
+.codex/
+.cursor/
+.gemini/
+.kiro/
+.opencode/
+.specify/
+.specswarm/
+.trae/
+.windsurf/
+.auto-claude/
+.devtools
+
+# GitHub AI configs (dev-only)
 .github/agents/
 .github/prompts/
 .github/copilot-instructions.md
+
+# Backups and specs (dev artifacts)
+_backup/
+specs/
 
 # Docs
 # (Mantido versionado para distribuição/guia. Se precisar ignorar algo específico,

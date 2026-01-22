@@ -1,13 +1,14 @@
-# SmartZap (SaaS de automação WhatsApp)
+# SmartZap v1.0.0 (SaaS de automação WhatsApp)
 
 <div align="center">
 
-![SmartZap](https://img.shields.io/badge/SmartZap-WhatsApp%20Marketing-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)
+![SmartZap](https://img.shields.io/badge/SmartZap-v1.0.0-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
+![PWA](https://img.shields.io/badge/PWA-Ready-5A0FC8?style=flat-square&logo=pwa&logoColor=white)
 
-CRM + automação de campanhas no WhatsApp (Cloud API), com fila/workflows (Upstash QStash) e geração de conteúdo via IA.
+CRM + automação de campanhas no WhatsApp (Cloud API), com inbox em tempo real, agentes de IA e fila/workflows (Upstash QStash).
 
 <p align="center">
    <a href="docs/GUIA_CONFIGURACAO.md">
@@ -29,7 +30,7 @@ CRM + automação de campanhas no WhatsApp (Cloud API), com fila/workflows (Upst
 - **Guia (local / dev)**: [docs/GUIA_DE_INSTALACAO.md](docs/GUIA_DE_INSTALACAO.md)
 - **Arquitetura**: [UI → API → filas → Meta → webhook → DB](#arquitetura-primeiro-como-tudo-se-conecta)
 - **Rodar local**: [Como rodar localmente](#como-rodar-localmente)
-- **Docs internas**: [Documentação interna](#documentacao-interna)
+- **Docs internas**: [Documentação](#documentação)
 
 > [!IMPORTANT]
 > Segurança: não comite segredos. Se você for adicionar prints na pasta `docs/`, use imagens sanitizadas (existe `scripts/redact_docs_images.py` e `scripts/scan-secrets.mjs`).
@@ -41,7 +42,7 @@ Escolha seu caminho:
 ### Produção (recomendado: Vercel + Wizard)
 
 - Siga o guia completo: **[docs/GUIA_CONFIGURACAO.md](docs/GUIA_CONFIGURACAO.md)**
-- Você vai usar o Wizard em `/setup` para configurar Supabase + QStash (+ WhatsApp opcional).
+- Você vai usar o Wizard em `/install/start` para configurar Supabase + QStash (+ WhatsApp opcional).
 
 ### Local (dev)
 
@@ -53,24 +54,39 @@ Escolha seu caminho:
 
 ## O que é
 
-O SmartZap é uma aplicação full-stack (Next.js App Router) que permite:
+O SmartZap é uma plataforma full-stack (Next.js App Router) para automação de WhatsApp que permite:
 
 - gerenciar **contatos** e campos personalizados;
 - visualizar/sincronizar/criar **templates** do WhatsApp;
 - criar e disparar **campanhas** (envio em massa) com pré-validação;
 - acompanhar **métricas** e alertas de conta;
-- configurar integrações (Supabase, Meta, Upstash, IA) por variáveis de ambiente e/ou wizard.
+- configurar integrações (Supabase, Meta, Upstash, IA) via wizard ou variáveis de ambiente.
 
-Este repositório também é usado como base educacional. A pasta `tmp/` pode conter materiais extras e utilitários.
+## Features Principais
+
+| Feature | Descrição |
+|---------|-----------|
+| 📋 **Campanhas** | Envio em massa com templates, pré-validação e métricas em tempo real |
+| 💬 **Inbox** | Chat em tempo real com clientes via WhatsApp |
+| 🤖 **AI Agents** | Agentes de IA configuráveis para atendimento automatizado |
+| 🧠 **Mem0** | Memória persistente de conversas para contexto personalizado |
+| 📝 **Lead Forms** | Formulários de captura embeddáveis |
+| 📱 **PWA** | App instalável com suporte a push notifications |
+| 👥 **Contatos** | CRM completo com campos personalizados e segmentação |
+| 📊 **Templates** | Sincronização e gerenciamento de templates do WhatsApp |
+
+> [!NOTE]
+> Este repositório também é usado como base educacional. A pasta `tmp/` pode conter materiais extras e utilitários.
 
 ## Stack
 
-- **Frontend**: Next.js 16, React 19, Tailwind CSS v4, shadcn/ui + Radix.
-- **Backend**: API Routes (Next.js, runtime Node.js) + integrações externas.
-- **Banco**: Supabase (PostgreSQL).
-- **Fila/Workflows**: Upstash QStash.
-- **IA**: Vercel AI SDK v6 com suporte a Gemini/OpenAI/Anthropic.
-- **WhatsApp**: Meta WhatsApp Cloud API (Graph API v24+).
+- **Frontend**: Next.js 16, React 19, Tailwind CSS v4, shadcn/ui + Radix
+- **Backend**: API Routes (Next.js, runtime Node.js) + integrações externas
+- **Banco**: Supabase (PostgreSQL + Realtime)
+- **Fila/Workflows**: Upstash QStash (steps duráveis)
+- **IA**: Vercel AI SDK v6 (Gemini/OpenAI/Anthropic) + Mem0 (memória de conversas)
+- **WhatsApp**: Meta WhatsApp Cloud API (Graph API v24+)
+- **PWA**: Service Worker + Push Notifications (web-push)
 
 ## Arquitetura (primeiro: como tudo se conecta)
 
@@ -87,10 +103,11 @@ Esta seção existe para responder rapidamente:
 ```mermaid
 flowchart TB
    %% ========== Client ==========
-   subgraph B["Browser (Dashboard)"]
+   subgraph B["Browser (Dashboard / PWA)"]
       UI["UI (Pages/Components)"]
       Hooks["Hooks (React Query + estado)"]
       Services["Services (fetch para /api)"]
+      SW["Service Worker\n(push notifications)"]
       UI --> Hooks --> Services
    end
 
@@ -98,19 +115,23 @@ flowchart TB
    subgraph N["Next.js (App Router / Node runtime)"]
       API["API Routes\napp/api/**/route.ts"]
       Lib["Lib\n(regras, validação, integrações)"]
+      AI["AI Agents\n(Vercel AI SDK)"]
       API --> Lib
+      API --> AI
    end
 
    Services --> API
 
    %% ========== Data ==========
-   subgraph S["Supabase (PostgreSQL)"]
+   subgraph S["Supabase (PostgreSQL + Realtime)"]
       Settings["settings\n(credenciais/config)"]
       Campaigns["campaigns\n(status/contadores)"]
-      CC["campaign_contacts\n(status por contato + message_id)"]
+      CC["campaign_contacts\n(status por contato)"]
       Contacts["contacts"]
-      Templates["templates\n(cache local)"]
-      Alerts["account_alerts"]
+      Templates["templates"]
+      Inbox["inbox_conversations\n+ inbox_messages"]
+      AIAgents["ai_agents\n+ ai_agent_logs"]
+      Flows["flows\n+ lead_forms"]
    end
 
    Lib --> Settings
@@ -118,10 +139,11 @@ flowchart TB
    Lib --> CC
    Lib --> Contacts
    Lib --> Templates
-   Lib --> Alerts
+   Lib --> Inbox
+   AI --> AIAgents
 
-   %% UI updates
-   S -->|"Realtime/queries"| Hooks
+   %% Realtime updates (Inbox)
+   S -->|"Realtime (Inbox/mensagens)"| Hooks
 
    %% ========== Async ==========
    subgraph U["Upstash"]
@@ -131,14 +153,22 @@ flowchart TB
    Lib --> QStash
    QStash --> API
 
+   %% ========== AI Memory ==========
+   subgraph Mem["Mem0 (AI Memory)"]
+      Memory["Memória de conversas\n(contexto por usuário)"]
+   end
+
+   AI --> Memory
+
    %% ========== External ==========
    subgraph M["Meta (WhatsApp Cloud API / Graph API)"]
       WA["/messages (envio)"]
-      WH["Webhook callbacks\n(delivered/read/failed)"]
+      WH["Webhook callbacks\n(delivered/read/failed + mensagens)"]
    end
 
    Lib --> WA
    WH --> API
+   API --> SW
 
    Settings -.->|"credenciais: DB (primário) / ENV (fallback)"| Lib
 ```
@@ -182,19 +212,66 @@ sequenceDiagram
 </details>
 
 <details>
+  <summary><strong>Fluxo do Inbox (chat em tempo real)</strong></summary>
+
+```mermaid
+sequenceDiagram
+   autonumber
+   participant C as Cliente (WhatsApp)
+   participant WH as Webhook (/api/webhook)
+   participant DB as Supabase (Realtime)
+   participant UI as Dashboard (Browser)
+   participant AI as AI Agent (opcional)
+   participant WA as Meta WhatsApp API
+
+   C->>WH: Envia mensagem
+   WH->>DB: Salva em inbox_messages
+   DB-->>UI: Realtime broadcast
+   UI->>UI: Atualiza chat
+
+   alt AI Agent ativo
+      WH->>AI: Processa mensagem
+      AI->>DB: Busca memória (Mem0)
+      AI->>AI: Gera resposta
+      AI->>WA: Envia resposta
+      AI->>DB: Salva log + atualiza memória
+   else Atendimento manual
+      UI->>WA: Operador envia resposta
+   end
+
+   WA-->>C: Resposta entregue
+```
+
+</details>
+
+<details>
   <summary><strong>Modelo mental do banco (o que persiste)</strong></summary>
 
-O relacionamento que amarra tudo em campanhas é:
+O banco possui três grupos principais de tabelas:
 
-`campaigns` → `campaign_contacts` (por contato, com `message_id`) → atualizado por workflow e pelo webhook.
+1. **Campanhas**: `campaigns` → `campaign_contacts` (por contato, com `message_id`)
+2. **Inbox**: `inbox_conversations` → `inbox_messages` (chat em tempo real)
+3. **AI**: `ai_agents` → `ai_agent_logs` (agentes e histórico)
 
 ```mermaid
 erDiagram
-   SETTINGS ||--o{ CAMPAIGNS : "configura/cria"
+   %% ========== Campanhas ==========
+   SETTINGS ||--o{ CAMPAIGNS : "configura"
    CONTACTS ||--o{ CAMPAIGN_CONTACTS : "participa"
    CAMPAIGNS ||--o{ CAMPAIGN_CONTACTS : "possui"
    TEMPLATES ||--o{ CAMPAIGNS : "baseado_em"
-   CAMPAIGNS ||--o{ ACCOUNT_ALERTS : "pode_gerar"
+
+   %% ========== Inbox ==========
+   CONTACTS ||--o{ INBOX_CONVERSATIONS : "conversa"
+   INBOX_CONVERSATIONS ||--o{ INBOX_MESSAGES : "contém"
+   AI_AGENTS ||--o{ INBOX_CONVERSATIONS : "atende"
+
+   %% ========== AI ==========
+   AI_AGENTS ||--o{ AI_AGENT_LOGS : "gera"
+
+   %% ========== Flows/Forms ==========
+   FLOWS ||--o{ LEAD_FORMS : "contém"
+   LEAD_FORMS ||--o{ SUBMISSIONS : "recebe"
 
    SETTINGS {
       string id
@@ -226,24 +303,68 @@ erDiagram
       int delivered
       int read
       int failed
-      int skipped
    }
 
    CAMPAIGN_CONTACTS {
       string id
       string campaign_id
       string contact_id
-      string phone
       string status
       string message_id
    }
 
-   ACCOUNT_ALERTS {
+   INBOX_CONVERSATIONS {
       string id
-      string type
-      int code
-      string message
-      bool dismissed
+      string contact_id
+      string ai_agent_id
+      string status
+      timestamp last_message_at
+   }
+
+   INBOX_MESSAGES {
+      string id
+      string conversation_id
+      string direction
+      string content
+      string status
+   }
+
+   AI_AGENTS {
+      string id
+      string name
+      string system_prompt
+      bool is_active
+      json config
+   }
+
+   AI_AGENT_LOGS {
+      string id
+      string agent_id
+      string conversation_id
+      string input
+      string output
+      int tokens_used
+   }
+
+   FLOWS {
+      string id
+      string name
+      json nodes
+      json edges
+   }
+
+   LEAD_FORMS {
+      string id
+      string flow_id
+      string name
+      json fields
+   }
+
+   SUBMISSIONS {
+      string id
+      string form_id
+      json data
+      timestamp created_at
    }
 ```
 
@@ -263,14 +384,49 @@ Em geral, as telas seguem o padrão:
 ### Pastas principais
 
 ```txt
-app/                  # Next.js App Router (páginas + API)
-components/            # UI (shadcn) e views por feature
-hooks/                 # Controller hooks (React Query)
-services/              # Camada de acesso às rotas da API
-lib/                   # Regras de negócio, utilitários e integrações
-supabase/              # Migrations/artefatos do banco
-scripts/               # Scripts utilitários (dev/ops)
+app/
+├── (auth)/
+│   ├── login/              # Página de login
+│   └── install/            # Wizard de instalação (start, steps, success)
+├── (dashboard)/
+│   ├── campaigns/          # Campanhas (lista, detalhes, criação)
+│   ├── contacts/           # Gestão de contatos
+│   ├── templates/          # Templates do WhatsApp
+│   ├── inbox/              # Chat em tempo real
+│   ├── settings/           # Configurações
+│   │   └── ai/             # Central de IA (agentes, memória)
+│   └── ...
+├── api/                    # API Routes (28+ endpoints)
+│   ├── webhook/            # Webhook do WhatsApp
+│   ├── inbox/              # APIs do Inbox
+│   ├── ai-agent/           # APIs dos AI Agents
+│   ├── campaign/           # APIs de campanha
+│   └── ...
+
+components/
+├── features/               # Componentes por feature
+│   ├── campaigns/          # Views de campanha
+│   ├── inbox/              # Chat UI
+│   ├── ai-agents/          # Configuração de agentes
+│   └── onboarding/         # Wizard de instalação
+├── ui/                     # shadcn/ui components
+
+hooks/                      # Controller hooks (React Query)
+services/                   # Camada de acesso às APIs
+lib/
+├── ai/                     # Sistema de IA
+│   ├── agents/             # Lógica dos agentes
+│   ├── mem0-client.ts      # Cliente Mem0
+│   └── embeddings.ts       # Embeddings
+├── whatsapp/               # Integração WhatsApp
+└── ...
+
+supabase/migrations/        # Migrations SQL (31+ arquivos)
+scripts/                    # Scripts utilitários
 ```
+
+> [!NOTE]
+> Pastas `workflows/`, `flows/`, `builder/` existem mas são features beta em desenvolvimento.
 
 ## Como rodar localmente
 
@@ -337,11 +493,25 @@ Abra `http://localhost:3000`.
 ## Comandos úteis
 
 ```bash
-npm run dev
-npm run lint
-npm run build
-npm run test
-npm run test:e2e
+# Desenvolvimento
+npm run dev                 # Dev server (Turbopack)
+npm run dev:with-ngrok      # Dev com túnel (para webhook)
+npm run lint                # ESLint
+npm run build               # Build de produção
+
+# Testes unitários (Vitest)
+npm run test                # Rodar testes
+npm run test:watch          # Watch mode
+npm run test:ui             # Vitest UI dashboard
+npm run test:coverage       # Coverage report
+
+# Testes E2E (Playwright)
+npm run test:e2e            # Playwright E2E
+npm run test:e2e:ui         # Playwright interactive UI
+npm run test:e2e:headed     # E2E com browser visível
+
+# Combinados
+npm run test:all            # Unit + E2E
 ```
 
 ## Deploy
@@ -353,7 +523,7 @@ O deploy padrão é na Vercel.
 
 ## Troubleshooting
 
-### “Supabase not configured. Complete setup at /setup”
+### "Supabase not configured. Complete setup at /install/start"
 
 As variáveis do Supabase não estão preenchidas (ou estão incorretas). Confira:
 
@@ -363,18 +533,49 @@ As variáveis do Supabase não estão preenchidas (ou estão incorretas). Confir
 
 ### Erros de permissão/#200 no Meta
 
-Geralmente indica token sem permissões adequadas.
+Geralmente indica token sem permissões adequadas. Verifique se o token tem as permissões:
+- `whatsapp_business_messaging`
+- `whatsapp_business_management`
 
 ### Rate limit por par (131056)
 
-Isso acontece quando o envio para o mesmo destinatário ocorre rápido demais. O projeto inclui tratamento e tempos de espera recomendados.
+Isso acontece quando o envio para o mesmo destinatário ocorre rápido demais. O projeto inclui tratamento e tempos de espera recomendados (backoff exponencial).
+
+### AI Agent não responde
+
+1. Verifique se o agente está **ativo** em Configurações > IA
+2. Confira se a `GEMINI_API_KEY` (ou outra chave de IA) está configurada
+3. Verifique os logs em Configurações > IA > Logs do Agente
+
+### Webhook não recebe mensagens
+
+1. Verifique se o webhook está configurado no Meta Business Suite
+2. A URL deve ser `https://seu-dominio.com/api/webhook`
+3. O verify token deve coincidir com o configurado no app
+4. Teste com: `curl https://seu-dominio.com/api/webhook?hub.verify_token=SEU_TOKEN&hub.challenge=test&hub.mode=subscribe`
+
+### Push notifications não funcionam
+
+1. PWA precisa estar instalado (não funciona no browser comum)
+2. Verifique se `NEXT_PUBLIC_VAPID_PUBLIC_KEY` está configurada
+3. O usuário precisa aceitar as notificações quando solicitado
+4. Em iOS, o PWA precisa ser adicionado à tela inicial
 
 ---
 
-## Documentação interna
+## Documentação
 
-Além deste README, veja:
+Além deste README, consulte os guias específicos:
 
-- `docs/GUIA_CONFIGURACAO.md`
-- `docs/guia.md`
+### Configuração e Instalação
+- [Guia de Configuração (Produção)](docs/GUIA_CONFIGURACAO.md) - Setup completo para produção
+- [Guia de Instalação (Local)](docs/GUIA_DE_INSTALACAO.md) - Setup para desenvolvimento
+- [Wizard de Instalação](docs/INSTALLATION_WIZARD.md) - Documentação do wizard
+
+### Features
+- [Inbox e AI Agents](docs/inbox-ai-agents.md) - Chat em tempo real e agentes de IA
+- [Integração Mem0](docs/MEM0_INTEGRATION.md) - Memória persistente de conversas
+
+### Referência
+- [Changelog](docs/changelog.md) - Histórico de alterações
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CheckCircle2,
   Circle,
@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Key,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,6 +24,7 @@ import {
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
 import { cn } from '@/lib/utils';
 import type { HealthStatus } from '@/lib/health-check';
+import { toast } from 'sonner';
 
 interface ChecklistItem {
   id: string;
@@ -51,14 +53,58 @@ export function OnboardingChecklist({
     shouldShowChecklist,
     minimizeChecklist,
     dismissChecklist,
-    confirmPermanentToken,
     goToStep,
-    isLoaded,
-    shouldShowOnboardingModal,
   } = useOnboardingProgress();
 
   const [showTokenDialog, setShowTokenDialog] = useState(false);
   const [tokenConfirmChecked, setTokenConfirmChecked] = useState(false);
+
+  // Estado do token permanente - busca do banco de dados
+  const [isPermanentTokenConfirmed, setIsPermanentTokenConfirmed] = useState(false);
+  const [isLoadingTokenStatus, setIsLoadingTokenStatus] = useState(true);
+  const [isSavingTokenStatus, setIsSavingTokenStatus] = useState(false);
+
+  // Busca o status do token permanente do banco ao montar
+  useEffect(() => {
+    async function fetchTokenStatus() {
+      try {
+        const res = await fetch('/api/settings/onboarding');
+        if (res.ok) {
+          const data = await res.json();
+          setIsPermanentTokenConfirmed(data.permanentTokenConfirmed ?? false);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar status do token permanente:', error);
+      } finally {
+        setIsLoadingTokenStatus(false);
+      }
+    }
+    fetchTokenStatus();
+  }, []);
+
+  // Salva a confirmação do token permanente no banco
+  const confirmPermanentToken = useCallback(async () => {
+    setIsSavingTokenStatus(true);
+    try {
+      const res = await fetch('/api/settings/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permanentTokenConfirmed: true }),
+      });
+
+      if (res.ok) {
+        setIsPermanentTokenConfirmed(true);
+        toast.success('Token permanente confirmado!');
+      } else {
+        throw new Error('Falha ao salvar');
+      }
+    } catch (error) {
+      console.error('Erro ao salvar status do token permanente:', error);
+      toast.error('Erro ao salvar confirmação');
+    } finally {
+      setIsSavingTokenStatus(false);
+    }
+  }, []);
 
   if (!shouldShowChecklist || progress.isChecklistMinimized) {
     return null;
@@ -68,8 +114,8 @@ export function OnboardingChecklist({
   const isCredentialsOk = healthStatus.services.whatsapp.status === 'ok';
   const isWebhookOk = healthStatus.services.webhook?.status === 'ok';
 
-  // Token permanente: confirmação manual do usuário (não temos como verificar via API)
-  const isPermanentToken = progress.permanentTokenConfirmed;
+  // Token permanente: agora vem do banco de dados
+  const isPermanentToken = isPermanentTokenConfirmed;
 
   const items: ChecklistItem[] = [
     {
@@ -308,14 +354,21 @@ export function OnboardingChecklist({
                 Cancelar
               </Button>
               <Button
-                disabled={!tokenConfirmChecked}
-                onClick={() => {
-                  confirmPermanentToken();
+                disabled={!tokenConfirmChecked || isSavingTokenStatus}
+                onClick={async () => {
+                  await confirmPermanentToken();
                   setShowTokenDialog(false);
                   setTokenConfirmChecked(false);
                 }}
               >
-                Confirmar
+                {isSavingTokenStatus ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Confirmar'
+                )}
               </Button>
             </div>
           </div>
