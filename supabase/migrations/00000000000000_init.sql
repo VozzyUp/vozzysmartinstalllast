@@ -1,8 +1,9 @@
 -- =============================================================================
 -- SMARTZAP - SCHEMA INICIAL
 -- Gerado: 2026-01-22 via pg_dump
+-- Atualizado: 2026-01-24 - Adicionado funções RPC para contadores atômicos
 --
--- Contém: 38 tabelas, 13 funções, 100 indexes, 9 triggers, 29 FKs
+-- Contém: 38 tabelas, 16 funções, 102 indexes, 9 triggers, 29 FKs
 -- =============================================================================
 
 -- Extensão necessária para embeddings de IA
@@ -208,6 +209,97 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- =============================================================================
+-- Funções RPC para contadores atômicos (inbox)
+-- Adicionado: 2025-01-24
+-- =============================================================================
+
+-- Incrementa contadores de conversa de forma atômica (elimina race condition)
+CREATE FUNCTION public.increment_conversation_counters(
+  p_conversation_id UUID,
+  p_direction TEXT DEFAULT 'inbound',
+  p_message_preview TEXT DEFAULT NULL
+)
+RETURNS public.inbox_conversations
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_result public.inbox_conversations;
+BEGIN
+  UPDATE inbox_conversations
+  SET
+    total_messages = total_messages + 1,
+    unread_count = CASE
+      WHEN p_direction = 'inbound' THEN unread_count + 1
+      ELSE unread_count
+    END,
+    last_message_at = NOW(),
+    last_message_preview = COALESCE(
+      CASE
+        WHEN LENGTH(p_message_preview) > 100
+        THEN SUBSTRING(p_message_preview, 1, 100) || '...'
+        ELSE p_message_preview
+      END,
+      last_message_preview
+    ),
+    updated_at = NOW()
+  WHERE id = p_conversation_id
+  RETURNING * INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+-- Decrementa contador de não lidas (nunca fica negativo)
+CREATE FUNCTION public.decrement_unread_count(
+  p_conversation_id UUID,
+  p_amount INT DEFAULT 1
+)
+RETURNS public.inbox_conversations
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_result public.inbox_conversations;
+BEGIN
+  UPDATE inbox_conversations
+  SET
+    unread_count = GREATEST(0, unread_count - p_amount),
+    updated_at = NOW()
+  WHERE id = p_conversation_id
+  RETURNING * INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+-- Reseta contador de não lidas para zero (marca como lida)
+CREATE FUNCTION public.reset_unread_count(
+  p_conversation_id UUID
+)
+RETURNS public.inbox_conversations
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_result public.inbox_conversations;
+BEGIN
+  UPDATE inbox_conversations
+  SET
+    unread_count = 0,
+    updated_at = NOW()
+  WHERE id = p_conversation_id
+  RETURNING * INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1154,13 +1246,17 @@ CREATE INDEX idx_inbox_conversations_mode_status ON public.inbox_conversations U
 
 CREATE INDEX idx_inbox_conversations_phone ON public.inbox_conversations USING btree (phone);
 
+-- Índice composto para busca por telefone no webhook (hot path)
+CREATE INDEX idx_inbox_conversations_phone_status ON public.inbox_conversations USING btree (phone, status);
+
 CREATE INDEX idx_inbox_conversations_human_mode_expires ON public.inbox_conversations USING btree (human_mode_expires_at) WHERE (mode = 'human' AND human_mode_expires_at IS NOT NULL);
 
 CREATE INDEX idx_inbox_messages_conversation_id ON public.inbox_messages USING btree (conversation_id);
 
 CREATE INDEX idx_inbox_messages_created_at ON public.inbox_messages USING btree (created_at);
 
-CREATE INDEX idx_inbox_messages_whatsapp_id ON public.inbox_messages USING btree (whatsapp_message_id) WHERE (whatsapp_message_id IS NOT NULL);
+-- Índice para status updates do WhatsApp (renomeado de whatsapp_id para whatsapp_msg_id)
+CREATE INDEX idx_inbox_messages_whatsapp_msg_id ON public.inbox_messages USING btree (whatsapp_message_id) WHERE (whatsapp_message_id IS NOT NULL);
 
 CREATE INDEX idx_lead_forms_collect_email ON public.lead_forms USING btree (collect_email);
 
@@ -1326,6 +1422,19 @@ ALTER TABLE ONLY public.workflow_versions
 
 ALTER TABLE ONLY public.workflows
     ADD CONSTRAINT workflows_active_version_fk FOREIGN KEY (active_version_id) REFERENCES public.workflow_versions(id) ON DELETE SET NULL;
+
+-- =============================================================================
+-- GRANTS para funções RPC de contadores atômicos
+-- =============================================================================
+
+GRANT EXECUTE ON FUNCTION public.increment_conversation_counters TO authenticated;
+GRANT EXECUTE ON FUNCTION public.increment_conversation_counters TO service_role;
+
+GRANT EXECUTE ON FUNCTION public.decrement_unread_count TO authenticated;
+GRANT EXECUTE ON FUNCTION public.decrement_unread_count TO service_role;
+
+GRANT EXECUTE ON FUNCTION public.reset_unread_count TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reset_unread_count TO service_role;
 
 -- =============================================================================
 -- REALTIME

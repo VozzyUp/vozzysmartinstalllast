@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processChatAgent } from '@/lib/ai/agents/chat-agent'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import type { AIAgent, InboxConversation, InboxMessage } from '@/types'
+import { ContactStatus, type AIAgent, type InboxConversation, type InboxMessage } from '@/types'
 
 // Timeout de 2 minutos (suficiente para testes)
 export const maxDuration = 120
@@ -134,15 +134,23 @@ export async function POST(req: NextRequest) {
     const mockConversation: InboxConversation = {
       id: 'test-conversation-' + Date.now(),
       phone,
-      contact_name: contactName,
       mode: 'bot',
       ai_agent_id: agent.id,
       unread_count: 0,
       automation_paused_until: null,
+      automation_paused_by: null,
       contact_id: null,
+      status: 'open',
+      priority: 'normal',
+      total_messages: 0,
       last_message_at: new Date().toISOString(),
+      last_message_preview: null,
+      handoff_summary: null,
+      human_mode_expires_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      // Campo virtual para teste
+      contact: contactName ? { id: 'test-contact', phone, name: contactName, status: ContactStatus.OPT_IN, tags: [], lastActive: new Date().toISOString() } : undefined,
     }
 
     // 5. Monta mensagens mock
@@ -157,6 +165,7 @@ export async function POST(req: NextRequest) {
         direction: msg.role === 'user' ? 'inbound' : 'outbound',
         content: msg.content,
         message_type: 'text',
+        media_url: null,
         whatsapp_message_id: null,
         delivery_status: 'delivered',
         ai_response_id: null,
@@ -174,6 +183,7 @@ export async function POST(req: NextRequest) {
       direction: 'inbound',
       content: message,
       message_type: 'text',
+      media_url: null,
       whatsapp_message_id: null,
       delivery_status: 'delivered',
       ai_response_id: null,
