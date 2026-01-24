@@ -100,6 +100,16 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data
 
+    // Verifica se é o primeiro agente - se sim, marca como padrão automaticamente
+    const { count } = await supabase
+      .from('ai_agents')
+      .select('*', { count: 'exact', head: true })
+
+    const isFirstAgent = count === 0
+    if (isFirstAgent) {
+      data.is_default = true
+    }
+
     // If setting as default, unset other defaults first
     if (data.is_default) {
       await supabase
