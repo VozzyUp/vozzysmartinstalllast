@@ -14,6 +14,12 @@ export type SkipCode =
 export type TemplateVariablesPositional = {
   header?: string[]
   headerMediaId?: string
+  headerLocation?: {
+    latitude: string
+    longitude: string
+    name: string
+    address: string
+  }
   body: string[]
   buttons?: Record<string, string>
 }
@@ -21,6 +27,12 @@ export type TemplateVariablesPositional = {
 export type TemplateVariablesNamed = {
   header?: Record<string, string>
   headerMediaId?: string
+  headerLocation?: {
+    latitude: string
+    longitude: string
+    name: string
+    address: string
+  }
   body: Record<string, string>
   buttons?: Record<string, string>
 }
@@ -73,6 +85,12 @@ export interface ContactLike {
 export interface ResolvedTemplateValues {
   header?: Array<{ key: string; text: string }>
   headerMediaId?: string
+  headerLocation?: {
+    latitude: string
+    longitude: string
+    name: string
+    address: string
+  }
   body: Array<{ key: string; text: string }>
   buttons?: Array<{ index: number; params: Array<{ key: string; text: string }> }>
 }
@@ -400,6 +418,17 @@ export function precheckContactForTemplate(
     }
     if (buttonValues.length) values.buttons = buttonValues
     if (headerMediaId && headerMediaId.trim()) values.headerMediaId = headerMediaId.trim()
+
+    // LOCATION header
+    const headerLocation = (rawTemplateVariables as any)?.headerLocation
+    if (headerLocation?.latitude && headerLocation?.longitude) {
+      values.headerLocation = {
+        latitude: String(headerLocation.latitude),
+        longitude: String(headerLocation.longitude),
+        name: String(headerLocation.name || ''),
+        address: String(headerLocation.address || ''),
+      }
+    }
   } else {
     // named
     const headerMap = normalizeNamedMap((rawTemplateVariables as any)?.header)
@@ -425,6 +454,17 @@ export function precheckContactForTemplate(
 
     // buttons dynamic is forbidden for named, so nothing to resolve
     if (headerMediaId && headerMediaId.trim()) values.headerMediaId = headerMediaId.trim()
+
+    // LOCATION header
+    const headerLocation = (rawTemplateVariables as any)?.headerLocation
+    if (headerLocation?.latitude && headerLocation?.longitude) {
+      values.headerLocation = {
+        latitude: String(headerLocation.latitude),
+        longitude: String(headerLocation.longitude),
+        name: String(headerLocation.name || ''),
+        address: String(headerLocation.address || ''),
+      }
+    }
   }
 
   const missingDetails: MissingParamDetail[] = requiredParams
@@ -536,6 +576,7 @@ export function buildMetaTemplatePayload(input: {
   ) as any | undefined
   const headerFormat = headerComponent?.format ? String(headerComponent.format).toUpperCase() : undefined
   const headerIsMedia = headerFormat && ['IMAGE', 'VIDEO', 'DOCUMENT', 'GIF'].includes(headerFormat)
+  const headerIsLocation = headerFormat === 'LOCATION'
 
   const extractHeaderExampleLink = (): string | undefined => {
     const example = headerComponent?.example
@@ -572,7 +613,11 @@ export function buildMetaTemplatePayload(input: {
       )
     }
 
-    const mediaParamType = headerFormat === 'IMAGE' ? 'image' : headerFormat === 'DOCUMENT' ? 'document' : 'video'
+    const mediaParamType =
+      headerFormat === 'IMAGE' ? 'image' :
+      headerFormat === 'DOCUMENT' ? 'document' :
+      headerFormat === 'GIF' ? 'gif' :
+      'video'
     const mediaKey = mediaParamType
     payload.template.components.push({
       type: 'header',
@@ -590,8 +635,34 @@ export function buildMetaTemplatePayload(input: {
     })
   }
 
-  // HEADER de texto (apenas se o template NÃO for header de mídia)
-  if (!headerIsMedia && values.header?.length) {
+  // HEADER de localização
+  if (headerIsLocation) {
+    const loc = values.headerLocation
+    if (!loc?.latitude || !loc?.longitude) {
+      throw new Error(
+        `Template "${templateName}" possui HEADER LOCATION, mas não há dados de localização configurados. ` +
+          'Configure latitude, longitude, nome e endereço para enviar este template.'
+      )
+    }
+
+    payload.template.components.push({
+      type: 'header',
+      parameters: [
+        {
+          type: 'location',
+          location: {
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            name: loc.name || '',
+            address: loc.address || '',
+          },
+        },
+      ],
+    })
+  }
+
+  // HEADER de texto (apenas se o template NÃO for header de mídia ou location)
+  if (!headerIsMedia && !headerIsLocation && values.header?.length) {
     payload.template.components.push({
       type: 'header',
       parameters: values.header.map((p) =>

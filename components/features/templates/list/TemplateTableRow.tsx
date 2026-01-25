@@ -6,6 +6,7 @@ import { FileText, Check, Loader2, Trash2, Eye, Pencil, Send, Megaphone, Copy } 
 import { Template } from '../../../../types';
 import { StatusBadge } from './StatusBadge';
 import { Button } from '@/components/ui/button';
+import { WhatsAppInlineText } from '@/components/ui/whatsapp-text';
 
 export interface TemplateTableRowProps {
   template: Template;
@@ -128,7 +129,7 @@ const TemplateTableRowComponent: React.FC<TemplateTableRowProps> = ({
       </td>
 
       {/* Status */}
-      <td className="px-4 py-4" onClick={handleCellClick}>
+      <td className="px-2 py-4" onClick={handleCellClick}>
         {isManualDraft ? (
           <Link href={draftHref} className="inline-block" title="Continuar edicao">
             <StatusBadge status={template.status} />
@@ -139,7 +140,7 @@ const TemplateTableRowComponent: React.FC<TemplateTableRowProps> = ({
       </td>
 
       {/* Category */}
-      <td className="px-4 py-4" onClick={handleCellClick}>
+      <td className="px-2 py-4" onClick={handleCellClick}>
         <span
           className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${
             template.category === 'UTILIDADE'
@@ -153,37 +154,24 @@ const TemplateTableRowComponent: React.FC<TemplateTableRowProps> = ({
         </span>
       </td>
 
-      {/* Language */}
-      <td className="px-4 py-4 text-[var(--ds-text-muted)] font-mono text-xs" onClick={handleCellClick}>
-        {isManualDraft ? (
-          <Link href={draftHref} className="hover:text-[var(--ds-text-secondary)]" title="Continuar edicao">
-            {template.language}
-          </Link>
-        ) : (
-          template.language
-        )}
-      </td>
-
       {/* Content */}
-      <td className="px-4 py-4 max-w-xs" onClick={handleCellClick}>
+      <td className="px-3 py-4" onClick={handleCellClick}>
         {isManualDraft ? (
           <Link href={draftHref} className="block" title="Continuar edicao">
             <p className="text-sm text-[var(--ds-text-secondary)] truncate" title={template.content}>
-              {template.content.slice(0, 50)}
-              {template.content.length > 50 ? '...' : ''}
+              <WhatsAppInlineText text={template.content.replace(/\n/g, ' ').slice(0, 80) + (template.content.length > 80 ? '...' : '')} />
             </p>
           </Link>
         ) : (
           <p className="text-sm text-[var(--ds-text-secondary)] truncate" title={template.content}>
-            {template.content.slice(0, 50)}
-            {template.content.length > 50 ? '...' : ''}
+            <WhatsAppInlineText text={template.content.replace(/\n/g, ' ').slice(0, 80) + (template.content.length > 80 ? '...' : '')} />
           </p>
         )}
       </td>
 
       {/* Updated */}
       <td
-        className="px-4 py-4 text-[var(--ds-text-muted)] font-mono text-xs whitespace-nowrap"
+        className="px-2 py-4 text-[var(--ds-text-muted)] font-mono text-xs whitespace-nowrap"
         onClick={handleCellClick}
       >
         {isManualDraft ? (
@@ -196,7 +184,7 @@ const TemplateTableRowComponent: React.FC<TemplateTableRowProps> = ({
       </td>
 
       {/* Actions */}
-      <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+      <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
           {isManualDraft ? (
             <>
@@ -293,7 +281,6 @@ export const TemplateTableRow = React.memo(TemplateTableRowComponent, (prev, nex
   if (prev.template.name !== next.template.name) return false;
   if (prev.template.status !== next.template.status) return false;
   if (prev.template.category !== next.template.category) return false;
-  if (prev.template.language !== next.template.language) return false;
   if (prev.template.content !== next.template.content) return false;
   if (prev.template.lastUpdated !== next.template.lastUpdated) return false;
   if (prev.isManualDraft !== next.isManualDraft) return false;

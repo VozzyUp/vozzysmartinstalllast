@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { precheckContactForTemplate } from '@/lib/whatsapp/template-contract'
+import { precheckContactForTemplate, buildMetaTemplatePayload } from '@/lib/whatsapp/template-contract'
 
 const baseTemplate = {
   id: 'tpl_1',
@@ -67,5 +67,102 @@ describe('template-contract precheckContactForTemplate', () => {
 
     expect(res.normalizedPhone).toBe('+5511999999999')
     expect(res.values.body).toEqual([{ key: '1', text: 'joao@exemplo.com' }])
+  })
+})
+
+describe('buildMetaTemplatePayload com LOCATION header', () => {
+  const locationTemplate = {
+    id: 'tpl_loc',
+    name: 'location_template',
+    category: 'MARKETING',
+    language: 'pt_BR',
+    status: 'APPROVED',
+    content: '',
+    preview: '',
+    lastUpdated: new Date().toISOString(),
+    parameterFormat: 'positional' as const,
+    components: [
+      { type: 'HEADER', format: 'LOCATION' },
+      { type: 'BODY', text: 'Visite nossa loja!' },
+    ],
+  }
+
+  it('deve construir payload correto com dados de localização', () => {
+    const payload = buildMetaTemplatePayload({
+      to: '+5511999999999',
+      templateName: 'location_template',
+      language: 'pt_BR',
+      parameterFormat: 'positional',
+      values: {
+        body: [],
+        headerLocation: {
+          latitude: '-23.5505',
+          longitude: '-46.6333',
+          name: 'Loja São Paulo',
+          address: 'Av. Paulista, 1000',
+        },
+      },
+      template: locationTemplate as any,
+    })
+
+    expect(payload.template.components).toContainEqual({
+      type: 'header',
+      parameters: [
+        {
+          type: 'location',
+          location: {
+            latitude: '-23.5505',
+            longitude: '-46.6333',
+            name: 'Loja São Paulo',
+            address: 'Av. Paulista, 1000',
+          },
+        },
+      ],
+    })
+  })
+
+  it('deve lançar erro quando template LOCATION não tem dados de localização', () => {
+    expect(() =>
+      buildMetaTemplatePayload({
+        to: '+5511999999999',
+        templateName: 'location_template',
+        language: 'pt_BR',
+        parameterFormat: 'positional',
+        values: {
+          body: [],
+        },
+        template: locationTemplate as any,
+      })
+    ).toThrow(/não há dados de localização/)
+  })
+
+  it('deve passar headerLocation através do precheck', () => {
+    const res = precheckContactForTemplate(
+      {
+        contactId: 'c_1',
+        name: 'João',
+        phone: '+5511999999999',
+      },
+      locationTemplate as any,
+      {
+        body: [],
+        headerLocation: {
+          latitude: '-23.5505',
+          longitude: '-46.6333',
+          name: 'Loja SP',
+          address: 'Av. Paulista',
+        },
+      }
+    )
+
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+
+    expect(res.values.headerLocation).toEqual({
+      latitude: '-23.5505',
+      longitude: '-46.6333',
+      name: 'Loja SP',
+      address: 'Av. Paulista',
+    })
   })
 })

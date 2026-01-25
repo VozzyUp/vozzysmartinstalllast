@@ -296,7 +296,7 @@ export function StepContent({
                     <SelectItem value="TEXT" disabled={isLimitedTimeOffer}>Texto</SelectItem>
                     <SelectItem value="IMAGE" disabled={!hasMetaAppId}>Imagem {!hasMetaAppId && '🔒'}</SelectItem>
                     <SelectItem value="VIDEO" disabled={!hasMetaAppId}>Vídeo {!hasMetaAppId && '🔒'}</SelectItem>
-                    <SelectItem value="GIF" disabled={!hasMetaAppId || !isMarketingCategory || isLimitedTimeOffer}>GIF (mp4) {!hasMetaAppId && '🔒'}</SelectItem>
+                    <SelectItem value="GIF" disabled={!hasMetaAppId || !isMarketingCategory || isLimitedTimeOffer}>GIF (vídeo em loop) {!hasMetaAppId && '🔒'}</SelectItem>
                     <SelectItem value="DOCUMENT" disabled={!hasMetaAppId || isLimitedTimeOffer}>Documento {!hasMetaAppId && '🔒'}</SelectItem>
                     <SelectItem value="LOCATION" disabled={isLimitedTimeOffer}>Localização</SelectItem>
                   </SelectContent>
@@ -309,7 +309,7 @@ export function StepContent({
                 ) : null}
                 {headerType === 'GIF' ? (
                   <p className="text-xs text-[var(--ds-text-muted)]">
-                    Observação: GIF no header é documentado como disponível para Marketing Messages (GIF = mp4, max 3.5MB).
+                    GIF é um vídeo curto (mp4, max 3.5MB) que toca em loop sem controles. Diferente de Vídeo, que tem play/pause.
                   </p>
                 ) : null}
                 {!isMarketingCategory && hasMetaAppId ? (
@@ -498,9 +498,7 @@ export function StepContent({
 
               {uploadHeaderMediaError ? (
                 <p className="text-xs text-amber-700 dark:text-amber-300">{uploadHeaderMediaError}</p>
-              ) : null}
-
-              {isHeaderMediaHandleMissing ? (
+              ) : isHeaderMediaHandleMissing ? (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
                   {headerMediaPreview ? 'Finalize o envio da midia para continuar.' : 'Selecione um arquivo para o cabecalho.'}
                 </p>

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { flowsService } from '@/services/flowsService'
 import { templateService } from '@/services/templateService'
+import { validateVideoCodecs, getCodecErrorMessage } from '@/lib/video-codec-validator'
 
 // Extracted components
 import { TemplatePreview } from './builder/TemplatePreview'
@@ -213,6 +214,28 @@ export function ManualTemplateBuilder({
       const mb = (max / 1_000_000).toFixed(1)
       setUploadHeaderMediaError(`Arquivo muito grande para ${format}. Limite: ${mb}MB.`)
       return
+    }
+
+    // Validar codecs de vídeo antes do upload (VIDEO e GIF são ambos mp4)
+    if (format === 'VIDEO' || format === 'GIF') {
+      try {
+        const codecResult = await validateVideoCodecs(file)
+
+        if (!codecResult.valid) {
+          const errorMsg = getCodecErrorMessage(codecResult)
+          setUploadHeaderMediaError(errorMsg)
+          toast.error(errorMsg, { duration: 8000 })
+          return
+        }
+
+        // Mostrar warning se houver (ex: vídeo sem áudio)
+        if (codecResult.warning) {
+          toast.warning(codecResult.warning, { duration: 6000 })
+        }
+      } catch (err) {
+        // Em caso de erro na validação, continua com o upload (Meta vai validar)
+        console.warn('Erro ao validar codecs:', err)
+      }
     }
 
     setUploadHeaderMediaError(null)
