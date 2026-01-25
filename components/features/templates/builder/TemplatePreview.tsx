@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Play, ExternalLink, CornerDownLeft, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Container } from '@/components/ui/container'
+import { WhatsAppInlineText } from '@/components/ui/whatsapp-text'
 
 type HeaderFormat = 'TEXT' | 'IMAGE' | 'VIDEO' | 'GIF' | 'DOCUMENT' | 'LOCATION'
 
@@ -132,12 +133,16 @@ export function TemplatePreview({ spec, headerMediaPreview }: TemplatePreviewPro
                 ) : null}
 
                 <div className="text-[13px] leading-snug whitespace-pre-wrap">
-                  {bodyText || <span className="text-zinc-400">Digite o corpo para ver a previa.</span>}
+                  {bodyText ? (
+                    <WhatsAppInlineText text={bodyText} />
+                  ) : (
+                    <span className="text-zinc-400">Digite o corpo para ver a previa.</span>
+                  )}
                 </div>
 
                 {footerText ? (
                   <div className="mt-1 text-[11px] text-zinc-500 whitespace-pre-wrap">
-                    {footerText}
+                    <WhatsAppInlineText text={footerText} />
                   </div>
                 ) : null}
 
