@@ -465,31 +465,59 @@ export function SupabaseForm({ data, onComplete, onBack, showBack }: FormProps) 
             <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
             como obter credenciais?
           </summary>
-          <div className="mt-3 p-3 rounded-lg bg-[var(--br-void-black)]/50 border border-[var(--br-dust-gray)]/30 text-left space-y-2">
-            <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1.5 list-decimal list-inside">
-              <li>
-                Acesse{' '}
-                <a
-                  href="https://supabase.com/dashboard/account/tokens"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--br-neon-cyan)] hover:underline"
-                >
-                  supabase.com/dashboard/account/tokens
-                </a>
-              </li>
-              <li>
-                Clique em{' '}
-                <strong className="text-[var(--br-hologram-white)]">Generate new token</strong>
-              </li>
-              <li>
-                Nome: <strong className="text-[var(--br-hologram-white)]">smartzap</strong>
-              </li>
-              <li>Copie o token (começa com sbp_)</li>
-            </ol>
-            <p className="text-xs font-mono text-[var(--br-dust-gray)] mt-2 pt-2 border-t border-[var(--br-dust-gray)]/30">
-              Uma nova unidade será criada automaticamente durante incubação.
-            </p>
+          <div className="mt-3 p-3 rounded-lg bg-[var(--br-void-black)]/50 border border-[var(--br-dust-gray)]/30 text-left space-y-3">
+            {/* Passo 1: Criar conta */}
+            <div>
+              <p className="text-xs font-mono text-[var(--br-neon-cyan)] font-bold mb-1.5">
+                1. CRIAR CONTA (se não tiver)
+              </p>
+              <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1 list-disc list-inside ml-2">
+                <li>
+                  Acesse{' '}
+                  <a href="https://supabase.com/dashboard/sign-up" target="_blank" rel="noopener noreferrer" className="text-[var(--br-neon-cyan)] hover:underline">
+                    supabase.com/dashboard/sign-up
+                  </a>
+                </li>
+                <li>Crie sua conta (pode usar GitHub, Google, etc.)</li>
+                <li>Confirme seu email</li>
+              </ol>
+            </div>
+
+            {/* Passo 2: Gerar Token */}
+            <div className="border-t border-[var(--br-dust-gray)]/20 pt-3">
+              <p className="text-xs font-mono text-[var(--br-neon-cyan)] font-bold mb-1.5">
+                2. GERAR TOKEN DE ACESSO
+              </p>
+              <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1 list-disc list-inside ml-2">
+                <li>
+                  Acesse{' '}
+                  <a
+                    href="https://supabase.com/dashboard/account/tokens"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--br-neon-cyan)] hover:underline"
+                  >
+                    supabase.com/dashboard/account/tokens
+                  </a>
+                </li>
+                <li>
+                  Clique em{' '}
+                  <strong className="text-[var(--br-hologram-white)]">Generate new token</strong>
+                </li>
+                <li>
+                  Nome: <strong className="text-[var(--br-hologram-white)]">smartzap</strong>
+                </li>
+                <li>Copie o token (começa com <strong className="text-[var(--br-hologram-white)]">sbp_</strong>)</li>
+                <li>Cole no campo acima</li>
+              </ol>
+            </div>
+
+            {/* Info adicional */}
+            <div className="border-t border-[var(--br-dust-gray)]/20 pt-3">
+              <p className="text-xs font-mono text-[var(--br-dust-gray)] italic">
+                ℹ️ Uma nova unidade será criada automaticamente durante a instalação
+              </p>
+            </div>
           </div>
         </details>
       )}
