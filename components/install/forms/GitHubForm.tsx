@@ -179,16 +179,33 @@ export function GitHubForm({ data, onComplete, onBack, showBack }: FormProps) {
         </div>
 
         {!tokenValidated ? (
-          <div className="space-y-3">
-            <Button
-              type="button"
-              onClick={handleGitHubOAuth}
-              className="w-full"
-              size="lg"
-            >
-              <Github className="mr-2 h-5 w-5" />
-              Conectar com GitHub
-            </Button>
+          <div className="space-y-4">
+            {/* OAuth Option */}
+            <div className="space-y-3">
+              <Alert>
+                <Github className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  <strong>Conectar com GitHub (Recomendado)</strong>
+                  <p className="mt-1 text-muted-foreground">
+                    Ao clicar no botão abaixo, você será redirecionado para o GitHub onde poderá:
+                  </p>
+                  <ul className="mt-2 ml-4 space-y-1 text-muted-foreground list-disc">
+                    <li><strong>Se já tem conta:</strong> Faça login normalmente</li>
+                    <li><strong>Se não tem conta:</strong> Clique em "Create an account" na página do GitHub</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+
+              <Button
+                type="button"
+                onClick={handleGitHubOAuth}
+                className="w-full"
+                size="lg"
+              >
+                <Github className="mr-2 h-5 w-5" />
+                Conectar com GitHub
+              </Button>
+            </div>
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
@@ -201,36 +218,55 @@ export function GitHubForm({ data, onComplete, onBack, showBack }: FormProps) {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Input
-                type="password"
-                placeholder="ghp_xxxxxxxxxxxx"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                disabled={isValidating}
-              />
-              <Button
-                type="button"
-                onClick={handleValidateToken}
-                disabled={isValidating || !githubToken.trim()}
-                variant="outline"
-                className="w-full"
-              >
-                {isValidating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Validar Token
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Crie um token em{' '}
-                <a
-                  href="https://github.com/settings/tokens/new?scopes=repo"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline inline-flex items-center gap-1"
+            {/* Manual Token Option */}
+            <div className="space-y-3">
+              <Alert>
+                <AlertDescription className="text-sm">
+                  <strong>Usar Token Manual</strong>
+                  <p className="mt-1 text-muted-foreground">
+                    Se preferir, você pode criar um token de acesso pessoal:
+                  </p>
+                  <ol className="mt-2 ml-4 space-y-1 text-muted-foreground list-decimal">
+                    <li>Acesse o link abaixo e faça login no GitHub</li>
+                    <li>Clique em "Generate token" no final da página</li>
+                    <li>Copie o token gerado (começa com ghp_)</li>
+                    <li>Cole o token no campo abaixo</li>
+                  </ol>
+                </AlertDescription>
+              </Alert>
+
+              <div className="space-y-2">
+                <Label htmlFor="githubToken">Token de Acesso Pessoal</Label>
+                <Input
+                  id="githubToken"
+                  type="password"
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  disabled={isValidating}
+                />
+                <Button
+                  type="button"
+                  onClick={handleValidateToken}
+                  disabled={isValidating || !githubToken.trim()}
+                  variant="outline"
+                  className="w-full"
                 >
-                  github.com/settings/tokens
+                  {isValidating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Validar Token
+                </Button>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <ExternalLink className="h-3 w-3" />
-                </a>
-              </p>
+                  <a
+                    href="https://github.com/settings/tokens/new?scopes=repo,user:email&description=VozzySmart%20Installer"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    Criar token no GitHub (abre em nova aba)
+                  </a>
+                </p>
+              </div>
             </div>
           </div>
         ) : null}
