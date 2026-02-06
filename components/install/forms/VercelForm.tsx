@@ -190,7 +190,7 @@ export function VercelForm({ data, onComplete, onBack, showBack }: FormProps) {
                 Clique em <strong className="text-[var(--br-hologram-white)]">Create</strong>
               </li>
               <li>
-                Nome: <strong className="text-[var(--br-hologram-white)]">smartzap</strong> • Scope: <strong className="text-[var(--br-hologram-white)]">Full Account</strong>
+                Nome: <strong className="text-[var(--br-hologram-white)]">vozzysmart</strong> • Scope: <strong className="text-[var(--br-hologram-white)]">Full Account</strong>
               </li>
               <li>Copie e cole as credenciais acima</li>
             </ol>

@@ -245,7 +245,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
             <Zap className="text-white" size={20} fill="currentColor" aria-hidden="true" />
           </div>
           <div>
-            <span className="text-xl font-bold text-[var(--ds-text-primary)] tracking-tight block">SmartZap</span>
+            <span className="text-xl font-bold text-[var(--ds-text-primary)] tracking-tight block">VozzySmart</span>
           </div>
           <button
             type="button"

@@ -106,8 +106,8 @@ export function InstallLayout({
             className="mb-8 text-center"
           >
             <h1 className="text-2xl font-bold tracking-wider text-[var(--br-hologram-white)]">
-              <span className="br-text-glow-cyan">SMART</span>
-              <span className="text-[var(--br-neon-magenta)]">ZAP</span>
+              <span className="br-text-glow-cyan">VOZZY</span>
+              <span className="text-[var(--br-neon-magenta)]">SMART</span>
             </h1>
             <p className="text-xs tracking-[0.3em] text-[var(--br-muted-cyan)] mt-2 uppercase">
               Protocolo de Inicialização
@@ -128,7 +128,12 @@ export function InstallLayout({
         )}
 
         {/* Main Content */}
-        <div className="w-full">{children}</div>
+        {/* Footer */}
+        <div className="mt-8 text-center">
+          <p className="text-[10px] text-[var(--br-dust-gray)] font-mono tracking-wider opacity-60 hover:opacity-100 transition-opacity">
+            VozSmart © 2026 | Um produto desenvolvido por VozzyUP
+          </p>
+        </div>
       </div>
     </div>
   );

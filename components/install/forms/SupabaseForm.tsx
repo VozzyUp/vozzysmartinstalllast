@@ -505,7 +505,7 @@ export function SupabaseForm({ data, onComplete, onBack, showBack }: FormProps) 
                   <strong className="text-[var(--br-hologram-white)]">Generate new token</strong>
                 </li>
                 <li>
-                  Nome: <strong className="text-[var(--br-hologram-white)]">smartzap</strong>
+                  Nome: <strong className="text-[var(--br-hologram-white)]">vozzysmart</strong>
                 </li>
                 <li>Copie o token (começa com <strong className="text-[var(--br-hologram-white)]">sbp_</strong>)</li>
                 <li>Cole no campo acima</li>
