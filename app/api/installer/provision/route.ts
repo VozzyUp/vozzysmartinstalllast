@@ -151,36 +151,25 @@ function isDbConnectionError(err: unknown): boolean {
   );
 }
 
-async function validateVercelToken(token: string): Promise<{ projectId: string; projectName: string; teamId?: string }> {
-  // List projects to validate token and find smartzap project
-  const res = await fetch('https://api.vercel.com/v9/projects?limit=100', {
+async function validateVercelToken(token: string): Promise<{ projectId?: string; projectName?: string; teamId?: string }> {
+  // Validate token by checking user/team info
+  const userRes = await fetch('https://api.vercel.com/v2/user', {
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
+  if (!userRes.ok) {
+    const error = await userRes.json().catch(() => ({}));
     throw new Error(error.error?.message || 'Token Vercel inválido');
   }
 
-  const data = await res.json();
-  const projects = data.projects || [];
-
-  // Find smartzap project or use first
-  let project = projects.find((p: { name: string }) => p.name.toLowerCase().includes('smartzap'));
-  if (!project && projects.length > 0) {
-    project = projects[0];
-  }
-
-  if (!project) {
-    throw new Error('Nenhum projeto encontrado na Vercel. Crie um projeto primeiro.');
-  }
-
+  const userData = await userRes.json();
+  
+  // Token is valid, return team info if available
   return {
-    projectId: project.id,
-    projectName: project.name,
-    teamId: project.accountId !== project.ownerId ? project.accountId : undefined,
+    teamId: userData.user?.teamId,
   };
 }
+
 
 async function validateQStashToken(token: string): Promise<void> {
   const res = await fetch('https://qstash.upstash.io/v2/schedules', {
@@ -381,7 +370,7 @@ export async function POST(req: Request) {
     console.log('[provision] ⚡ Background task iniciada');
 
     let stepIndex = 0;
-    let vercelProject: { projectId: string; projectName: string; teamId?: string } | null = null;
+    let vercelProject: { projectId?: string; projectName?: string; teamId?: string } | null = null;
     let supabaseProject: { projectRef: string; projectUrl: string; dbPass: string; isNew: boolean } | null = null;
     let anonKey = '';
     let serviceRoleKey = '';
@@ -441,7 +430,7 @@ export async function POST(req: Request) {
       const { connectVercelToGitHub } = await import('@/lib/installer/vercel-github');
       const connectionResult = await connectVercelToGitHub({
         vercelToken: vercel.token,
-        projectId: vercelProject.projectId,
+        projectName: github.repoName, // Create new project with GitHub repo name
         githubRepoFullName: github.repoFullName,
         teamId: vercelProject.teamId,
       });
@@ -450,7 +439,20 @@ export async function POST(req: Request) {
         throw new Error(connectionResult.error);
       }
 
+      // Update vercelProject with the created project ID
+      vercelProject = {
+        ...vercelProject,
+        projectId: connectionResult.projectId,
+        projectName: github.repoName,
+      };
+
       console.log('[provision] ✅ Step 3/15: Connect Vercel to GitHub - COMPLETO');
+      
+      // Ensure project was created successfully
+      if (!vercelProject?.projectId || !vercelProject?.projectName) {
+        throw new Error('Falha ao criar projeto no Vercel');
+      }
+      
       stepIndex++;
 
       // Step 4: Validate Supabase PAT
@@ -664,7 +666,7 @@ export async function POST(req: Request) {
       ];
 
       console.log('[provision] 📍 Step 3/15: Upserting', envVars.length, 'env vars...');
-      await upsertProjectEnvs(vercel.token, vercelProject.projectId, envVars, vercelProject.teamId);
+      await upsertProjectEnvs(vercel.token, vercelProject.projectId!, envVars, vercelProject.teamId);
       console.log('[provision] ✅ Step 3/15: Env vars upserted');
 
       // Desabilita Deployment Protection para permitir acesso de serviços M2M (QStash)
@@ -672,7 +674,7 @@ export async function POST(req: Request) {
       console.log('[provision] 📍 Step 3/15: Disabling Deployment Protection...');
       const protectionResult = await disableDeploymentProtection(
         vercel.token,
-        vercelProject.projectId,
+        vercelProject.projectId!,
         vercelProject.teamId
       );
       if (!protectionResult.ok) {
@@ -782,7 +784,7 @@ export async function POST(req: Request) {
       console.log('[provision] 📍 Step 3/15: Disabling installer...');
       await upsertProjectEnvs(
         vercel.token,
-        vercelProject.projectId,
+        vercelProject.projectId!,
         [{ key: 'INSTALLER_ENABLED', value: 'false', targets: ['production', 'preview'] }],
         vercelProject.teamId
       );
@@ -790,13 +792,13 @@ export async function POST(req: Request) {
       console.log('[provision] 📍 Step 3/15: Triggering redeploy...');
       let redeploy: { deploymentId?: string };
       try {
-        redeploy = await triggerProjectRedeploy(vercel.token, vercelProject.projectId, vercelProject.teamId);
+        redeploy = await triggerProjectRedeploy(vercel.token, vercelProject.projectId!, vercelProject.teamId);
       } catch (err) {
         try {
           console.warn('[provision] ⚠️ Redeploy falhou, reabilitando installer...');
           await upsertProjectEnvs(
             vercel.token,
-            vercelProject.projectId,
+            vercelProject.projectId!,
             [{ key: 'INSTALLER_ENABLED', value: 'true', targets: ['production', 'preview'] }],
             vercelProject.teamId
           );
