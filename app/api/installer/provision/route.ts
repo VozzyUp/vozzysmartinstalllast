@@ -790,12 +790,34 @@ export async function POST(req: Request) {
       );
 
       console.log('[provision] 📍 Step 3/15: Triggering redeploy...');
-      let redeploy: { deploymentId?: string };
+      let redeploy: { deploymentId?: string } | null = null;
       try {
         redeploy = await triggerProjectRedeploy(vercel.token, vercelProject.projectId!, vercelProject.teamId);
+        
+        if (!redeploy) {
+          // Projeto novo sem deployments - criar primeiro deployment manualmente
+          console.log('[provision] ℹ️ Step 3/15: Projeto novo sem deployments, criando primeiro deployment...');
+          
+          const { createFirstDeployment } = await import('@/lib/installer/vercel');
+          redeploy = await createFirstDeployment(
+            vercel.token,
+            vercelProject.projectId!,
+            vercelProject.projectName!,
+            {
+              type: 'github',
+              repo: github.repoFullName,
+              ref: 'main',
+            },
+            vercelProject.teamId
+          );
+          
+          console.log('[provision] ✅ Step 3/15: First deployment created', { deploymentId: redeploy.deploymentId });
+        } else {
+          console.log('[provision] ✅ Step 3/15: Redeploy triggered', { deploymentId: redeploy.deploymentId });
+        }
       } catch (err) {
         try {
-          console.warn('[provision] ⚠️ Redeploy falhou, reabilitando installer...');
+          console.warn('[provision] ⚠️ Redeploy/deployment falhou, reabilitando installer...');
           await upsertProjectEnvs(
             vercel.token,
             vercelProject.projectId!,
@@ -807,7 +829,6 @@ export async function POST(req: Request) {
         }
         throw err;
       }
-      console.log('[provision] ✅ Step 3/15: Redeploy triggered', { deploymentId: redeploy.deploymentId });
       stepIndex++;
 
       // Step 12: Wait for deploy
@@ -820,7 +841,7 @@ export async function POST(req: Request) {
         subtitle: step14.subtitle,
       });
 
-      if (redeploy.deploymentId) {
+      if (redeploy?.deploymentId) {
         console.log('[provision] 📍 Step 3/15: Waiting for deployment to be ready...');
         await waitForVercelDeploymentReady({
           token: vercel.token,

@@ -262,7 +262,7 @@ export default function InstallPage() {
   if (isSuccess(state)) {
     return (
       <InstallLayout showDots={false}>
-        <SuccessView name={state.data.name} /> {/* ✅ Vem do state.data */}
+        <SuccessView name={state.data.name} data={state.data} /> {/* ✅ Passa data completo */}
       </InstallLayout>
     );
   }

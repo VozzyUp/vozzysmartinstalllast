@@ -301,12 +301,13 @@ export async function upsertProjectEnvs(
 /**
  * Dispara redeploy de um projeto Vercel.
  * Retorna o ID do novo deployment para acompanhar status.
+ * Retorna null se o projeto não tem deployments (projeto novo).
  */
 export async function triggerProjectRedeploy(
   token: string,
   projectId: string,
   teamId?: string
-): Promise<{ deploymentId: string }> {
+): Promise<{ deploymentId: string } | null> {
   // Busca o último deployment de production
   let data = await vercelFetch<{ deployments?: VercelDeployment[] }>(
     `/v6/deployments?projectId=${projectId}&target=production&limit=1`,
@@ -330,7 +331,9 @@ export async function triggerProjectRedeploy(
 
   const deploymentId = latest?.id ?? latest?.uid;
   if (!deploymentId) {
-    throw new Error('Nenhum deployment encontrado para este projeto.');
+    // Projeto novo sem deployments - retorna null em vez de erro
+    console.log('[triggerProjectRedeploy] ℹ️ Projeto sem deployments existentes (provavelmente novo)');
+    return null;
   }
 
   // Obtém nome do deployment/projeto
@@ -364,6 +367,65 @@ export async function triggerProjectRedeploy(
   }
 
   return { deploymentId: String(newId) };
+}
+
+/**
+ * Cria o primeiro deployment para um projeto Vercel novo.
+ * Usado quando o projeto foi recém-criado e não tem deployments ainda.
+ */
+export async function createFirstDeployment(
+  token: string,
+  projectId: string,
+  projectName: string,
+  gitSource: { type: 'github'; repo: string; ref?: string },
+  teamId?: string
+): Promise<{ deploymentId: string }> {
+  console.log('[createFirstDeployment] Creating first deployment for project:', projectName);
+
+  // Busca detalhes do projeto para obter o repoId
+  const project = await vercelFetch<VercelProject>(
+    `/v9/projects/${projectId}`,
+    token,
+    {},
+    teamId
+  );
+
+  // Extrai repoId do link do GitHub
+  const repoId = (project as any)?.link?.repoId;
+  if (!repoId) {
+    throw new Error('Falha ao criar primeiro deployment: repoId não encontrado no projeto. Certifique-se de que o projeto está conectado ao GitHub.');
+  }
+
+  console.log('[createFirstDeployment] Found repoId:', repoId);
+
+  // Cria deployment a partir do repositório GitHub
+  const created = await vercelFetch<VercelDeployment>(
+    `/v13/deployments`,
+    token,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        name: projectName,
+        project: projectId,
+        target: 'production',
+        gitSource: {
+          type: gitSource.type,
+          repo: gitSource.repo,
+          ref: gitSource.ref || 'main',
+          repoId: repoId,
+        },
+      }),
+    },
+    teamId
+  );
+
+  const deploymentId = (created as Record<string, unknown>)?.id || (created as Record<string, unknown>)?.uid;
+  if (!deploymentId) {
+    throw new Error('Falha ao criar primeiro deployment: ID ausente na resposta.');
+  }
+
+  console.log('[createFirstDeployment] First deployment created:', deploymentId);
+  return { deploymentId: String(deploymentId) };
 }
 
 /**
