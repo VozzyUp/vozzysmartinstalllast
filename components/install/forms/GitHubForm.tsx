@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Github, Loader2, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Github, Loader2, CheckCircle2, ExternalLink, AlertCircle } from 'lucide-react';
 import type { FormProps } from './types';
 
 const GITHUB_OAUTH_CLIENT_ID = process.env.NEXT_PUBLIC_GITHUB_OAUTH_CLIENT_ID || '';
@@ -160,7 +160,8 @@ export function GitHubForm({ data, onComplete, onBack, showBack }: FormProps) {
       </div>
 
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="error">
+          <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}

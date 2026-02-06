@@ -3,6 +3,9 @@
  * Gerencia autenticação OAuth, criação de repositórios e configuração de secrets.
  */
 
+import nacl from 'tweetnacl';
+import { encodeBase64, decodeUTF8 } from 'tweetnacl-util';
+
 const GITHUB_API_BASE = 'https://api.github.com';
 const TEMPLATE_OWNER = 'vozzyups-projects';
 const TEMPLATE_REPO = 'vozzysmart_template';
@@ -137,22 +140,35 @@ async function getRepoPublicKey(params: {
  * Criptografa um valor usando a chave pública do repositório
  * Usa libsodium (tweetnacl) para criptografia
  */
-async function encryptSecret(publicKey: string, secretValue: string): Promise<string> {
-  // Importa tweetnacl dinamicamente (já está no projeto via @vercel/oidc)
-  const nacl = await import('tweetnacl');
-  const { encode: encodeBase64, decode: decodeBase64 } = await import('tweetnacl-util');
-
+function encryptSecret(publicKey: string, secretValue: string): string {
   // Converte a chave pública de base64
-  const keyBytes = decodeBase64(publicKey);
+  const keyBytes = Buffer.from(publicKey, 'base64');
   
   // Converte o valor do secret para bytes
-  const messageBytes = new TextEncoder().encode(secretValue);
+  const messageBytes = decodeUTF8(secretValue);
   
   // Criptografa usando sealed box (anonymous encryption)
-  const encryptedBytes = nacl.sealedbox.seal(messageBytes, keyBytes);
+  // Note: tweetnacl doesn't have box.seal, so we use a simple approach
+  const nonce = nacl.randomBytes(nacl.box.nonceLength);
+  const ephemeralKeyPair = nacl.box.keyPair();
+  
+  const encrypted = nacl.box(
+    messageBytes,
+    nonce,
+    keyBytes.subarray(0, nacl.box.publicKeyLength),
+    ephemeralKeyPair.secretKey
+  );
+  
+  // Combina ephemeral public key + nonce + encrypted
+  const combined = new Uint8Array(
+    ephemeralKeyPair.publicKey.length + nonce.length + encrypted.length
+  );
+  combined.set(ephemeralKeyPair.publicKey);
+  combined.set(nonce, ephemeralKeyPair.publicKey.length);
+  combined.set(encrypted, ephemeralKeyPair.publicKey.length + nonce.length);
   
   // Retorna em base64
-  return encodeBase64(encryptedBytes);
+  return encodeBase64(combined);
 }
 
 /**

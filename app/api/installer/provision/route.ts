@@ -390,7 +390,7 @@ export async function POST(req: Request) {
     try {
       // Step 1: Validate GitHub repository
       console.log('[provision] 📍 Step 1/15: Validate GitHub - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step1 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
@@ -416,7 +416,7 @@ export async function POST(req: Request) {
 
       // Step 2: Validate Vercel token
       console.log('[provision] 📍 Step 2/15: Validate Vercel - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step2 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
@@ -455,12 +455,12 @@ export async function POST(req: Request) {
 
       // Step 4: Validate Supabase PAT
       console.log('[provision] 📍 Step 4/15: Validate Supabase PAT - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step4 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step2.title,
-        subtitle: step2.subtitle,
+        title: step4.title,
+        subtitle: step4.subtitle,
       });
 
       // Just validate the PAT format for now - actual validation happens in project creation
@@ -472,12 +472,12 @@ export async function POST(req: Request) {
 
       // Step 5: Create/find Supabase project
       console.log('[provision] 📍 Step 5/15: Create Supabase Project - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step5 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step3.title,
-        subtitle: step3.subtitle,
+        title: step5.title,
+        subtitle: step5.subtitle,
       });
 
       let createTick = 0;
@@ -494,7 +494,7 @@ export async function POST(req: Request) {
           await sendEvent({
             type: 'progress',
             progress: calculateProgress(stepIndex, Math.min(0.2 + createTick * 0.01, 0.95)),
-            title: step3.title,
+            title: step5.title,
             subtitle,
           });
         }, 6000);
@@ -502,7 +502,7 @@ export async function POST(req: Request) {
           await sendEvent({
             type: 'progress',
             progress: calculateProgress(stepIndex, fraction),
-            title: step3.title,
+            title: step5.title,
             subtitle: fraction < 0.3 ? 'Escaneando setores ocupados...' : 'Alocando nova unidade de memória...',
           });
         });
@@ -516,12 +516,12 @@ export async function POST(req: Request) {
 
       // Step 4: Wait for project to be ready (sempre aguarda - projeto é sempre novo)
       console.log('[provision] 📍 Step 3/15: Wait for Supabase Ready - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step6 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step4.title,
-        subtitle: step4.subtitle,
+        title: step6.title,
+        subtitle: step6.subtitle,
       });
 
       const startTime = Date.now();
@@ -553,12 +553,12 @@ export async function POST(req: Request) {
 
       // Step 5: Resolve Supabase keys
       console.log('[provision] 📍 Step 3/15: Resolve Supabase Keys - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step7 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step5.title,
-        subtitle: step5.subtitle,
+        title: step7.title,
+        subtitle: step7.subtitle,
       });
 
       const keysResult = await resolveSupabaseApiKeys({
@@ -609,12 +609,12 @@ export async function POST(req: Request) {
 
       // Step 6: Validate QStash
       console.log('[provision] 📍 Step 3/15: Validate QStash - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step8 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step6.title,
-        subtitle: step6.subtitle,
+        title: step8.title,
+        subtitle: step8.subtitle,
       });
 
       await validateQStashToken(qstash.token);
@@ -623,12 +623,12 @@ export async function POST(req: Request) {
 
       // Step 7: Validate Redis
       console.log('[provision] 📍 Step 3/15: Validate Redis - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step9 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step7.title,
-        subtitle: step7.subtitle,
+        title: step9.title,
+        subtitle: step9.subtitle,
       });
 
       await validateRedisCredentials(redis.restUrl, redis.restToken);
@@ -637,12 +637,12 @@ export async function POST(req: Request) {
 
       // Step 8: Setup env vars
       console.log('[provision] 📍 Step 3/15: Setup Env Vars - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step10 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step8.title,
-        subtitle: step8.subtitle,
+        title: step10.title,
+        subtitle: step10.subtitle,
       });
 
       const passwordHash = await hashPassword(identity.password);
@@ -721,12 +721,12 @@ export async function POST(req: Request) {
       // Step 9: Run migrations
       console.log('[provision] 📍 Step 3/15: Run Migrations - INICIANDO');
       console.log('[provision] 📍 Step 3/15: dbUrl available?', !!dbUrl);
-      const step3 = STEPS[stepIndex];
+      const step11 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step9.title,
-        subtitle: step9.subtitle,
+        title: step11.title,
+        subtitle: step11.subtitle,
       });
 
       if (dbUrl) {
@@ -751,12 +751,12 @@ export async function POST(req: Request) {
 
       // Step 10: Bootstrap admin
       console.log('[provision] 📍 Step 3/15: Bootstrap Admin - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step12 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step10.title,
-        subtitle: step10.subtitle,
+        title: step12.title,
+        subtitle: step12.subtitle,
       });
 
       await bootstrapInstance({
@@ -770,12 +770,12 @@ export async function POST(req: Request) {
 
       // Step 11: Redeploy
       console.log('[provision] 📍 Step 3/15: Redeploy - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step13 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step11.title,
-        subtitle: step11.subtitle,
+        title: step13.title,
+        subtitle: step13.subtitle,
       });
 
       // Disable installer before redeploy
@@ -810,12 +810,12 @@ export async function POST(req: Request) {
 
       // Step 12: Wait for deploy
       console.log('[provision] 📍 Step 3/15: Wait for Deploy - INICIANDO');
-      const step3 = STEPS[stepIndex];
+      const step14 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
-        title: step12.title,
-        subtitle: step12.subtitle,
+        title: step14.title,
+        subtitle: step14.subtitle,
       });
 
       if (redeploy.deploymentId) {
@@ -831,7 +831,7 @@ export async function POST(req: Request) {
             await sendEvent({
               type: 'progress',
               progress: calculateProgress(stepIndex, fraction),
-              title: step12.title,
+              title: step14.title,
               subtitle: `Consciência emergindo... (${Math.round(fraction * 100)}%)`,
             });
           },
