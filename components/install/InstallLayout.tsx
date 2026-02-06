@@ -128,6 +128,8 @@ export function InstallLayout({
         )}
 
         {/* Main Content */}
+        <div className="w-full">{children}</div>
+
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-[10px] text-[var(--br-dust-gray)] font-mono tracking-wider opacity-60 hover:opacity-100 transition-opacity">
