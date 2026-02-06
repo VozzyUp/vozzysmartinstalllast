@@ -40,6 +40,13 @@ export function ProvisioningView({ data, progress, title, subtitle, onProgress, 
         email: data.email,
         password: data.password,
       },
+      github: {
+        token: data.githubToken,
+        username: data.githubUsername,
+        repoName: data.githubRepoName,
+        repoUrl: data.githubRepoUrl,
+        repoFullName: data.githubRepoFullName,
+      },
       vercel: {
         token: data.vercelToken,
       },

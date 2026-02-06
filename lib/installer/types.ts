@@ -246,6 +246,13 @@ export interface ProvisionPayload {
     email: string;
     password: string;
   };
+  github: {
+    token: string;
+    username: string;
+    repoName: string;
+    repoUrl: string;
+    repoFullName: string;
+  };
   vercel: {
     token: string;
   };
