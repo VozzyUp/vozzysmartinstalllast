@@ -33,6 +33,7 @@ import {
   SupabaseForm,
   QStashForm,
   RedisForm,
+  LicenseForm,
 } from '@/components/install/forms';
 import { ProvisioningView } from '@/components/install/ProvisioningView';
 import { SuccessView } from '@/components/install/SuccessView';
@@ -164,6 +165,7 @@ export default function InstallPage() {
       4: 'orange',   // Supabase
       5: 'red',      // QStash
       6: 'magenta',  // Redis
+      7: 'magenta',  // Redis (Final)
     };
 
     const renderForm = () => {
@@ -176,16 +178,18 @@ export default function InstallPage() {
 
       switch (step) {
         case 1:
-          return <IdentityForm key="identity" {...formProps} />;
+          return <LicenseForm key="license" data={data} dispatch={dispatch} />;
         case 2:
-          return <GitHubForm key="github" {...formProps} />;
+          return <IdentityForm key="identity" {...formProps} />;
         case 3:
-          return <VercelForm key="vercel" {...formProps} />;
+          return <GitHubForm key="github" {...formProps} />;
         case 4:
-          return <SupabaseForm key="supabase" {...formProps} />;
+          return <VercelForm key="vercel" {...formProps} />;
         case 5:
-          return <QStashForm key="qstash" {...formProps} />;
+          return <SupabaseForm key="supabase" {...formProps} />;
         case 6:
+          return <QStashForm key="qstash" {...formProps} />;
+        case 7:
           return <RedisForm key="redis" {...formProps} />;
         default:
           return null;
@@ -193,7 +197,7 @@ export default function InstallPage() {
     };
 
     return (
-      <InstallLayout currentStep={step} totalSteps={6}>
+      <InstallLayout currentStep={step} totalSteps={7}>
         {/* Botão "Voltar" removido - já existe dentro dos forms */}
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div

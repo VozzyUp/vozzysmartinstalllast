@@ -50,6 +50,8 @@ export interface InstallData {
   name: string;
   email: string;
   password: string;
+  // License
+  licenseCode: string;
   // GitHub configuration
   githubToken: string;
   githubUsername: string;
@@ -68,6 +70,7 @@ export const EMPTY_INSTALL_DATA: InstallData = {
   name: '',
   email: '',
   password: '',
+  licenseCode: '',
   githubToken: '',
   githubUsername: '',
   githubRepoName: '',
@@ -84,7 +87,7 @@ export const EMPTY_INSTALL_DATA: InstallData = {
 // VALIDAÇÃO POR STEP (NOVO)
 // =============================================================================
 
-export type InstallStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type InstallStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /**
  * Valida formato de email usando regex.
@@ -99,22 +102,24 @@ export function isValidEmail(email: string): boolean {
 
 /** Funções que validam se um step está completo */
 export const stepValidators: Record<InstallStep, (data: InstallData) => boolean> = {
-  1: (data) => Boolean(data.name && isValidEmail(data.email) && data.password),
-  2: (data) => Boolean(data.githubToken && data.githubRepoUrl && data.githubRepoFullName),
-  3: (data) => Boolean(data.vercelToken),
-  4: (data) => Boolean(data.supabasePat),
-  5: (data) => Boolean(data.qstashToken),
-  6: (data) => Boolean(data.redisRestUrl && data.redisRestToken),
+  1: (data) => Boolean(data.licenseCode && data.licenseCode.length > 5),
+  2: (data) => Boolean(data.name && isValidEmail(data.email) && data.password),
+  3: (data) => Boolean(data.githubToken && data.githubRepoUrl && data.githubRepoFullName),
+  4: (data) => Boolean(data.vercelToken),
+  5: (data) => Boolean(data.supabasePat),
+  6: (data) => Boolean(data.qstashToken),
+  7: (data) => Boolean(data.redisRestUrl && data.redisRestToken),
 };
 
 /** Campos requeridos por step (para mensagens de erro) */
 export const stepRequiredFields: Record<InstallStep, (keyof InstallData)[]> = {
-  1: ['name', 'email', 'password'],
-  2: ['githubToken', 'githubRepoUrl', 'githubRepoFullName'],
-  3: ['vercelToken'],
-  4: ['supabasePat'],
-  5: ['qstashToken'],
-  6: ['redisRestUrl', 'redisRestToken'],
+  1: ['licenseCode'],
+  2: ['name', 'email', 'password'],
+  3: ['githubToken', 'githubRepoUrl', 'githubRepoFullName'],
+  4: ['vercelToken'],
+  5: ['supabasePat'],
+  6: ['qstashToken'],
+  7: ['redisRestUrl', 'redisRestToken'],
 };
 
 // =============================================================================
@@ -273,10 +278,11 @@ export interface ProvisionPayload {
 // =============================================================================
 
 export const STEP_META: Record<InstallStep, { title: string; service: string }> = {
-  1: { title: 'Identidade', service: 'identity' },
-  2: { title: 'GitHub', service: 'github' },
-  3: { title: 'Vercel', service: 'vercel' },
-  4: { title: 'Supabase', service: 'supabase' },
-  5: { title: 'QStash', service: 'qstash' },
-  6: { title: 'Redis', service: 'redis' },
+  1: { title: 'Validação', service: 'license' },
+  2: { title: 'Identidade', service: 'identity' },
+  3: { title: 'GitHub', service: 'github' },
+  4: { title: 'Vercel', service: 'vercel' },
+  5: { title: 'Supabase', service: 'supabase' },
+  6: { title: 'QStash', service: 'qstash' },
+  7: { title: 'Redis', service: 'redis' },
 };

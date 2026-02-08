@@ -98,6 +98,27 @@ export function ProvisioningView({ data, progress, title, subtitle, onProgress, 
           if (line.startsWith('data: ')) {
             try {
               const event: ProvisionStreamEvent = JSON.parse(line.slice(6));
+              
+              if (event.type === 'complete') {
+                // Redeem license before finishing
+                try {
+                  await fetch('/api/installer/license/redeem', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                      code: data.licenseCode,
+                      // Note: We don't have the final URL here yet easily available from the stream event
+                      // Ideally the backend should return it in the complete event, but for now sending null or capturing from previous events if possible
+                      // The backend redeem route accepts null for url
+                    }),
+                  });
+                } catch (redeemErr) {
+                  console.error('Failed to redeem license:', redeemErr);
+                  // Decide if we should block completion or just log
+                  // For now, we proceed to complete to not block user experience
+                }
+              }
+
               onProgress(event);
             } catch (parseErr) {
               console.warn('[Provisioning] ⚠️ Erro ao parsear evento SSE:', {
