@@ -18,12 +18,13 @@ interface ErrorViewProps {
 }
 
 const STEP_NAMES: Record<InstallStep, string> = {
-  1: 'Identidade',
-  2: 'GitHub',
-  3: 'Vercel',
-  4: 'Supabase',
-  5: 'QStash',
-  6: 'Redis',
+  1: 'Licença',
+  2: 'Identidade',
+  3: 'GitHub',
+  4: 'Vercel',
+  5: 'Supabase',
+  6: 'QStash',
+  7: 'Redis',
 };
 
 /**
