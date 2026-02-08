@@ -90,4 +90,18 @@ export async function getDashboardStatsServer(): Promise<{ stats: DashboardStats
         },
         recentCampaigns
     }
+    } catch (error) {
+        console.error('Error in getDashboardStatsServer:', error)
+        // Return safe defaults on any error
+        return {
+            stats: {
+                sent24h: '0',
+                deliveryRate: '0%',
+                activeCampaigns: '0',
+                failedMessages: '0',
+                chartData: []
+            },
+            recentCampaigns: []
+        }
+    }
 }
