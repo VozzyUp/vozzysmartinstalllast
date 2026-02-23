@@ -8,7 +8,7 @@ import { encodeBase64, decodeUTF8 } from 'tweetnacl-util';
 
 const GITHUB_API_BASE = 'https://api.github.com';
 const TEMPLATE_OWNER = 'VozzyUp';
-const TEMPLATE_REPO = 'vozzySmart';
+const TEMPLATE_REPO = 'vozzysmart_template';
 
 export interface GitHubUser {
   login: string;
@@ -57,19 +57,16 @@ export async function validateGitHubToken(
 }
 
 /**
- * Cria um novo repositório a partir do template
- * Usa a API de templates do GitHub para criar uma cópia limpa
+ * Cria um fork do repositório VozzySmart
+ * Usa a API de forks do GitHub para manter vínculo com o upstream
  */
-export async function createRepoFromTemplate(params: {
+export async function forkRepo(params: {
   token: string;
   newRepoName: string;
-  isPrivate: boolean;
-  description?: string;
 }): Promise<{ ok: true; repo: GitHubRepo } | { ok: false; error: string }> {
   try {
-    // Usa a API de templates do GitHub
     const res = await fetch(
-      `${GITHUB_API_BASE}/repos/${TEMPLATE_OWNER}/${TEMPLATE_REPO}/generate`,
+      `${GITHUB_API_BASE}/repos/${TEMPLATE_OWNER}/${TEMPLATE_REPO}/forks`,
       {
         method: 'POST',
         headers: {
@@ -79,28 +76,133 @@ export async function createRepoFromTemplate(params: {
         },
         body: JSON.stringify({
           name: params.newRepoName,
-          description: params.description || 'VozzySmart - WhatsApp CRM SaaS',
-          private: params.isPrivate,
-          include_all_branches: false,
+          default_branch_only: true,
         }),
       }
     );
 
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
-      const message = (errorData as { message?: string }).message || 'Erro ao criar repositório';
-      
+      const message = (errorData as { message?: string }).message || 'Erro ao criar fork';
+
       if (res.status === 422) {
         return { ok: false, error: 'Nome de repositório já existe ou é inválido' };
       }
-      
+
       return { ok: false, error: message };
     }
 
     const repo = (await res.json()) as GitHubRepo;
     return { ok: true, repo };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Erro ao criar repositório';
+    const message = err instanceof Error ? err.message : 'Erro ao criar fork';
+    return { ok: false, error: message };
+  }
+}
+
+// =============================================================================
+// UPDATE / SYNC UPSTREAM
+// =============================================================================
+
+export interface UpstreamStatus {
+  behindBy: number;
+  commits: { sha: string; message: string; date: string }[];
+}
+
+/**
+ * Verifica se o fork está atrás do upstream (VozzyUp/vozzySmart).
+ * Compara a branch main do fork com a do upstream.
+ */
+export async function checkUpstreamUpdates(params: {
+  token: string;
+  owner: string;
+  repo: string;
+}): Promise<{ ok: true; status: UpstreamStatus } | { ok: false; error: string }> {
+  try {
+    // Compara upstream main com o fork main
+    const res = await fetch(
+      `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/compare/main...${TEMPLATE_OWNER}:${TEMPLATE_REPO}:main`,
+      {
+        headers: {
+          Authorization: `Bearer ${params.token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      return {
+        ok: false,
+        error: (errorData as { message?: string }).message || 'Erro ao verificar atualizações',
+      };
+    }
+
+    const data = (await res.json()) as {
+      ahead_by: number;
+      commits: { sha: string; commit: { message: string; author: { date: string } } }[];
+    };
+
+    return {
+      ok: true,
+      status: {
+        behindBy: data.ahead_by, // upstream is "ahead" = fork is "behind"
+        commits: data.commits.slice(0, 20).map((c) => ({
+          sha: c.sha.slice(0, 7),
+          message: c.commit.message.split('\n')[0],
+          date: c.commit.author.date,
+        })),
+      },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao verificar atualizações';
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Sincroniza o fork com o upstream usando a API merge-upstream do GitHub.
+ * Faz merge das atualizações do VozzyUp/vozzySmart na branch main do fork.
+ */
+export async function mergeUpstream(params: {
+  token: string;
+  owner: string;
+  repo: string;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}/merge-upstream`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${params.token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ branch: 'main' }),
+      }
+    );
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      const msg = (errorData as { message?: string }).message || '';
+
+      if (res.status === 409) {
+        return { ok: false, error: 'Conflito de merge detectado. Resolva manualmente no GitHub.' };
+      }
+
+      return { ok: false, error: msg || 'Erro ao aplicar atualizações' };
+    }
+
+    const data = (await res.json()) as { merge_type?: string; message?: string };
+
+    if (data.merge_type === 'none') {
+      return { ok: true, message: 'Já está atualizado. Nenhuma alteração necessária.' };
+    }
+
+    return { ok: true, message: 'Atualização aplicada com sucesso! O Vercel fará redeploy automaticamente.' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao aplicar atualizações';
     return { ok: false, error: message };
   }
 }

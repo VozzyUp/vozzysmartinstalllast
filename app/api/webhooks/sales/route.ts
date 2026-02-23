@@ -6,6 +6,15 @@ import crypto from 'crypto';
 // Configure isso no .env: SALES_WEBHOOK_SECRET=sua_senha_secreta_aqui
 const WEBHOOK_SECRET = process.env.SALES_WEBHOOK_SECRET;
 
+export async function GET() {
+  return NextResponse.json({
+    status: 'online',
+    configured: !!WEBHOOK_SECRET,
+    method_required: 'POST',
+    supabase_configured: !!process.env.SUPABASE_SECRET_KEY && !!process.env.NEXT_PUBLIC_SUPABASE_URL
+  });
+}
+
 export async function POST(request: Request) {
   try {
     // 1. Validação de Segurança

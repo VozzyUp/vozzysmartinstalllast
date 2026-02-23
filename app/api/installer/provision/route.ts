@@ -387,17 +387,24 @@ export async function POST(req: Request) {
         subtitle: step1.subtitle,
       });
 
-      // Verify repository exists
+      // Verify repository exists (forks may take a few seconds to be available)
       const { checkRepoExists } = await import('@/lib/installer/github');
       const [owner, repo] = github.repoFullName.split('/');
-      const repoCheck = await checkRepoExists({
-        token: github.token,
-        owner,
-        repo,
-      });
+      
+      let repoReady = false;
+      const maxRetries = 6;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const repoCheck = await checkRepoExists({ token: github.token, owner, repo });
+        if (repoCheck.exists) {
+          repoReady = true;
+          break;
+        }
+        console.log(`[provision] ⏳ Fork não disponível ainda (tentativa ${attempt}/${maxRetries}), aguardando 5s...`);
+        await new Promise((r) => setTimeout(r, 5000));
+      }
 
-      if (!repoCheck.exists) {
-        throw new Error('Repositório GitHub não encontrado. Verifique se foi criado corretamente.');
+      if (!repoReady) {
+        throw new Error('Repositório GitHub não encontrado após aguardar. O fork pode estar demorando. Tente reiniciar a instalação.');
       }
 
       console.log('[provision] ✅ Step 1/15: Validate GitHub - COMPLETO', { repoFullName: github.repoFullName });
@@ -663,6 +670,9 @@ export async function POST(req: Request) {
         // Tokens para métricas de uso (painel de infraestrutura)
         { key: 'VERCEL_API_TOKEN', value: vercel.token, targets: [...envTargets] },
         { key: 'SUPABASE_ACCESS_TOKEN', value: supabase.pat, targets: [...envTargets] },
+        // GitHub token e repo para funcionalidade de auto-atualização
+        { key: 'GITHUB_TOKEN', value: github.token, targets: [...envTargets] },
+        { key: 'GITHUB_REPO_FULL_NAME', value: github.repoFullName, targets: [...envTargets] },
       ];
 
       console.log('[provision] 📍 Step 3/15: Upserting', envVars.length, 'env vars...');

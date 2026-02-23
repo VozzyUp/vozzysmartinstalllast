@@ -17,6 +17,19 @@ interface VercelProject {
 }
 
 /**
+ * Sanitiza o nome do projeto para a Vercel.
+ * Regras: lowercase, max 100 chars, apenas [a-z0-9._-], sem "---".
+ */
+function sanitizeVercelProjectName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')  // caracteres inválidos → -
+    .replace(/---+/g, '--')          // evitar sequência ---
+    .replace(/^-+|-+$/g, '')         // remover traços nas pontas
+    .slice(0, 100);
+}
+
+/**
  * Conecta um projeto Vercel a um repositório GitHub
  */
 export async function connectVercelToGitHub(params: {
@@ -41,7 +54,7 @@ export async function connectVercelToGitHub(params: {
 
     // Se não temos projectId, precisamos criar um novo projeto
     if (!params.projectId && params.projectName) {
-      body.name = params.projectName;
+      body.name = sanitizeVercelProjectName(params.projectName);
     }
 
     const res = await fetch(url.toString(), {
@@ -87,7 +100,7 @@ export async function createVercelProjectFromGitHub(params: {
     }
 
     const body: Record<string, unknown> = {
-      name: params.projectName,
+      name: sanitizeVercelProjectName(params.projectName),
       gitRepository: {
         type: 'github',
         repo: params.githubRepoFullName,

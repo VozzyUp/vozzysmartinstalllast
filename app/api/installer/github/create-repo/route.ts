@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRepoFromTemplate } from '@/lib/installer/github';
+import { forkRepo } from '@/lib/installer/github';
 
 /**
  * POST /api/installer/github/create-repo
  * 
- * Cria um novo repositório a partir do template VozzySmart
+ * Cria um fork do repositório VozzySmart
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { token, repoName, isPrivate } = body;
+    const { token, repoName } = body;
 
     if (!token || typeof token !== 'string') {
       return NextResponse.json(
@@ -25,10 +25,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await createRepoFromTemplate({
+    const result = await forkRepo({
       token,
-      newRepoName: repoName,
-      isPrivate: isPrivate !== false, // Default to private
+      newRepoName: repoName.trim(),
     });
 
     if (!result.ok) {
@@ -48,7 +47,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[GitHub Create Repo] Error:', error);
     return NextResponse.json(
-      { ok: false, error: 'Erro ao criar repositório' },
+      { ok: false, error: 'Erro ao criar fork' },
       { status: 500 }
     );
   }
