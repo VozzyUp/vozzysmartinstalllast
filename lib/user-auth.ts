@@ -338,16 +338,14 @@ export async function completeSetup(
 // LOGIN / LOGOUT
 // ============================================================================
 
+import crypto from 'crypto'
+
 /**
  * Hash SHA-256 com salt fixo (mesmo algoritmo do IdentityStep no wizard).
  */
 async function hashPasswordForLogin(password: string): Promise<string> {
   const SALT = '_vozzysmart_salt_2026';
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + SALT);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return crypto.createHash('sha256').update(password + SALT).digest('hex');
 }
 
 /**
@@ -386,17 +384,24 @@ export async function loginUser(password: string): Promise<UserAuthResult> {
     // Detecta automaticamente se MASTER_PASSWORD é hash ou texto puro
     const masterIsHash = isHashFormat(masterPassword)
 
+    console.log('🔍 [user-auth] MASTER_PASSWORD starts with:', masterPassword.substring(0, 10));
+    console.log('🔍 [user-auth] MASTER_PASSWORD length:', masterPassword.length);
+    console.log('🔍 [user-auth] masterIsHash:', masterIsHash);
+
     let isValid: boolean
     if (masterIsHash) {
       // Comportamento original: MASTER_PASSWORD é hash, compara com hash da senha digitada
       const passwordHash = await hashPasswordForLogin(password)
+      console.log('🔍 [user-auth] passwordHash calculated:', passwordHash);
       isValid = passwordHash === masterPassword
     } else {
       // Novo: MASTER_PASSWORD é texto puro, compara diretamente
+      console.log('🔍 [user-auth] using plain text comparison');
       isValid = password === masterPassword
     }
 
     if (!isValid) {
+      console.log('🔍 [user-auth] Login FAILED: password mismatch');
       await recordFailedAttempt()
       return { success: false, error: 'Senha incorreta' }
     }

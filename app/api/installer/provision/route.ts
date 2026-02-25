@@ -112,13 +112,11 @@ const STEPS: Step[] = [
 // HELPERS
 // =============================================================================
 
+import crypto from 'crypto'
+
 async function hashPassword(password: string): Promise<string> {
   const SALT = '_vozzysmart_salt_2026';
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + SALT);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return crypto.createHash('sha256').update(password + SALT).digest('hex');
 }
 
 function calculateProgress(completedSteps: number, currentStepProgress = 0): number {
@@ -634,7 +632,6 @@ export async function POST(req: Request) {
       stepIndex++;
 
       // Step 6: Validate QStash
-      console.log('[provision] 📍 Step 3/15: Validate QStash - INICIANDO');
       const step8 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
@@ -644,11 +641,9 @@ export async function POST(req: Request) {
       });
 
       await validateQStashToken(qstash.token);
-      console.log('[provision] ✅ Step 3/15: Validate QStash - COMPLETO');
       stepIndex++;
 
       // Step 7: Validate Redis
-      console.log('[provision] 📍 Step 3/15: Validate Redis - INICIANDO');
       const step9 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
