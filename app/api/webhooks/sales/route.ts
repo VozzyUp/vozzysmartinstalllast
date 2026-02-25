@@ -57,7 +57,15 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseAdmin();
     if (!supabase) {
-      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 });
+      const missing = [];
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL) missing.push('NEXT_PUBLIC_SUPABASE_URL');
+      if (!process.env.SUPABASE_SECRET_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SECRET_KEY');
+      
+      console.error('[Webhook] Database connection failed. Missing:', missing.join(', '));
+      return NextResponse.json({ 
+        error: 'Database connection failed', 
+        details: `Missing environment variables: ${missing.join(', ')}` 
+      }, { status: 500 });
     }
 
     // 4. Salvar no Banco
