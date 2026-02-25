@@ -371,32 +371,50 @@ export async function triggerProjectRedeploy(
 
 /**
  * Cria o primeiro deployment para um projeto Vercel novo.
- * Usado quando o projeto foi recém-criado e não tem deployments ainda.
+ * Funciona mesmo quando o projeto foi criado SEM link GitHub (repoId opcional).
+ * Requer que o usuário tenha a integração GitHub instalada na conta Vercel.
  */
 export async function createFirstDeployment(
   token: string,
   projectId: string,
   projectName: string,
-  gitSource: { type: 'github'; repo: string; ref?: string },
+  gitSource: { type: 'github'; repo: string; repoId?: number; ref?: string },
   teamId?: string
 ): Promise<{ deploymentId: string }> {
   console.log('[createFirstDeployment] Creating first deployment for project:', projectName);
 
-  // Busca detalhes do projeto para obter o repoId
-  const project = await vercelFetch<VercelProject>(
-    `/v9/projects/${projectId}`,
-    token,
-    {},
-    teamId
-  );
-
-  // Extrai repoId do link do GitHub
-  const repoId = (project as any)?.link?.repoId;
+  // Prioriza o repoId vindo do argumento (essencial para projetos novos sem link)
+  let repoId = gitSource.repoId;
+  
   if (!repoId) {
-    throw new Error('Falha ao criar primeiro deployment: repoId não encontrado no projeto. Certifique-se de que o projeto está conectado ao GitHub.');
+    console.log('[createFirstDeployment] repoId não fornecido nos argumentos, tentando fallback...');
+    // Fallback: Tenta obter do projeto (só para projetos já linkados)
+    try {
+      const project = await vercelFetch<VercelProject>(
+        `/v9/projects/${projectId}`,
+        token,
+        {},
+        teamId
+      );
+      repoId = (project as any)?.link?.repoId;
+    } catch {
+      // ignore
+    }
   }
 
-  console.log('[createFirstDeployment] Found repoId:', repoId);
+  if (!repoId && gitSource.type === 'github') {
+    console.error('[createFirstDeployment] ❌ ERRO: repoId ausente para fonte GitHub. O deploy vai falhar na Vercel.');
+    throw new Error('Falha ao criar deployment: o ID numérico do repositório GitHub (repoId) é obrigatório e não foi encontrado.');
+  }
+
+  console.log('[createFirstDeployment] Git repoId:', repoId);
+
+  const gitSourcePayload: Record<string, unknown> = {
+    type: gitSource.type,
+    ref: gitSource.ref || 'main',
+    repo: gitSource.repo,
+    repoId: repoId, // Agora passamos garantidamente (ou throws acima)
+  };
 
   // Cria deployment a partir do repositório GitHub
   const created = await vercelFetch<VercelDeployment>(
@@ -408,12 +426,7 @@ export async function createFirstDeployment(
         name: projectName,
         project: projectId,
         target: 'production',
-        gitSource: {
-          type: gitSource.type,
-          repo: gitSource.repo,
-          ref: gitSource.ref || 'main',
-          repoId: repoId,
-        },
+        gitSource: gitSourcePayload,
       }),
     },
     teamId
@@ -427,6 +440,7 @@ export async function createFirstDeployment(
   console.log('[createFirstDeployment] First deployment created:', deploymentId);
   return { deploymentId: String(deploymentId) };
 }
+
 
 /**
  * Valida um token Vercel.

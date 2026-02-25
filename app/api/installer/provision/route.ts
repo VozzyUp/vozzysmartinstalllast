@@ -370,7 +370,12 @@ export async function POST(req: Request) {
     console.log('[provision] ⚡ Background task iniciada');
 
     let stepIndex = 0;
-    let vercelProject: { projectId?: string; projectName?: string; teamId?: string } | null = null;
+    let vercelProject: {
+        projectId?: string;
+        projectName?: string;
+        repoId?: number; // Numeric ID required for Vercel gitSource
+        teamId?: string;
+      } | null = null;
     let supabaseProject: { projectRef: string; projectUrl: string; dbPass: string; isNew: boolean } | null = null;
     let anonKey = '';
     let serviceRoleKey = '';
@@ -424,42 +429,54 @@ export async function POST(req: Request) {
       console.log('[provision] ✅ Step 2/15: Validate Vercel - COMPLETO', { projectId: vercelProject.projectId, projectName: vercelProject.projectName });
       stepIndex++;
 
-      // Step 3: Connect Vercel to GitHub
-      console.log('[provision] 📍 Step 3/15: Connect Vercel to GitHub - INICIANDO');
+      // Step 3: Criar projeto Vercel SEM link GitHub
+      // INTENCIONALMENTE não linkamos o GitHub aqui para evitar o auto-deploy prematuro.
+      // O deploy só será criado manualmente DEPOIS que todas as env vars estiverem configuradas.
+      console.log('[provision] 📍 Step 3/15: Criar projeto Vercel (sem auto-deploy) - INICIANDO');
       const step3 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
         progress: calculateProgress(stepIndex),
         title: step3.title,
-        subtitle: step3.subtitle,
+        subtitle: 'Criando projeto sem auto-deploy...',
       });
 
-      const { connectVercelToGitHub } = await import('@/lib/installer/vercel-github');
-      const connectionResult = await connectVercelToGitHub({
+      const { createVercelProjectOnly } = await import('@/lib/installer/vercel-github');
+      const createProjectResult = await createVercelProjectOnly({
         vercelToken: vercel.token,
-        projectName: github.repoName, // Create new project with GitHub repo name
-        githubRepoFullName: github.repoFullName,
+        projectName: github.repoName,
         teamId: vercelProject.teamId,
       });
 
-      if (!connectionResult.ok) {
-        throw new Error(connectionResult.error);
+      if (!createProjectResult.ok) {
+        throw new Error(createProjectResult.error);
       }
 
-      // Update vercelProject with the created project ID
+      // NOVO: Busca o repoId numérico do GitHub
+      // Este ID é obrigatório para disparar o deploy via gitSource
+      console.log('[provision] 📍 Buscando ID numérico do repositório no GitHub...');
+      const { getRepoInfo } = await import('@/lib/installer/github');
+      // Reutiliza owner/repo extraídos no Step 1
+      const repoInfo = await getRepoInfo({
+        token: github.token,
+        owner,
+        repo,
+      });
+
+      if (!repoInfo.ok) {
+        throw new Error(`Falha ao obter ID do repositório: ${repoInfo.error}`);
+      }
+
+      console.log('[provision] 📍 repoId capturado:', repoInfo.repo.id);
+
       vercelProject = {
         ...vercelProject,
-        projectId: connectionResult.projectId,
+        projectId: createProjectResult.projectId,
         projectName: github.repoName,
+        repoId: repoInfo.repo.id,
       };
 
-      console.log('[provision] ✅ Step 3/15: Connect Vercel to GitHub - COMPLETO');
-      
-      // Ensure project was created successfully
-      if (!vercelProject?.projectId || !vercelProject?.projectName) {
-        throw new Error('Falha ao criar projeto no Vercel');
-      }
-      
+      console.log('[provision] ✅ Step 3/15: Projeto Vercel criado (sem deploy)', { projectId: createProjectResult.projectId });
       stepIndex++;
 
       // Step 4: Validate Supabase PAT
@@ -644,8 +661,8 @@ export async function POST(req: Request) {
       console.log('[provision] ✅ Step 3/15: Validate Redis - COMPLETO');
       stepIndex++;
 
-      // Step 8: Setup env vars
-      console.log('[provision] 📍 Step 3/15: Setup Env Vars - INICIANDO');
+      // Step 8: Configurar env vars + disparar primeiro deploy com todas as vars garantidas
+      console.log('[provision] 📍 Step 8/15: Setup Env Vars + Primeiro Deploy - INICIANDO');
       const step10 = STEPS[stepIndex];
       await sendEvent({
         type: 'progress',
@@ -657,31 +674,31 @@ export async function POST(req: Request) {
       const passwordHash = await hashPassword(identity.password);
       const envTargets = ['production', 'preview'] as const;
 
+      // Lista completa de env vars — calculadas ANTES de qualquer deploy
       const envVars = [
-        { key: 'NEXT_PUBLIC_SUPABASE_URL', value: supabaseProject.projectUrl, targets: [...envTargets] },
-        { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', value: anonKey, targets: [...envTargets] },
-        { key: 'SUPABASE_SECRET_KEY', value: serviceRoleKey, targets: [...envTargets] },
-        { key: 'QSTASH_TOKEN', value: qstash.token, targets: [...envTargets] },
-        { key: 'UPSTASH_REDIS_REST_URL', value: redis.restUrl, targets: [...envTargets] },
-        { key: 'UPSTASH_REDIS_REST_TOKEN', value: redis.restToken, targets: [...envTargets] },
-        { key: 'MASTER_PASSWORD', value: passwordHash, targets: [...envTargets] },
-        { key: 'VOZZYSMART_API_KEY', value: `vsm_${crypto.randomUUID().replace(/-/g, '')}`, targets: [...envTargets] },
-        { key: 'SETUP_COMPLETE', value: 'true', targets: [...envTargets] },
-        // Tokens para métricas de uso (painel de infraestrutura)
-        { key: 'VERCEL_API_TOKEN', value: vercel.token, targets: [...envTargets] },
-        { key: 'SUPABASE_ACCESS_TOKEN', value: supabase.pat, targets: [...envTargets] },
-        // GitHub token e repo para funcionalidade de auto-atualização
-        { key: 'GITHUB_TOKEN', value: github.token, targets: [...envTargets] },
-        { key: 'GITHUB_REPO_FULL_NAME', value: github.repoFullName, targets: [...envTargets] },
+        { key: 'NEXT_PUBLIC_SUPABASE_URL',             value: supabaseProject.projectUrl, targets: [...envTargets] },
+        { key: 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', value: anonKey,                    targets: [...envTargets] },
+        { key: 'SUPABASE_SECRET_KEY',                  value: serviceRoleKey,             targets: [...envTargets] },
+        { key: 'QSTASH_TOKEN',                         value: qstash.token,              targets: [...envTargets] },
+        { key: 'UPSTASH_REDIS_REST_URL',               value: redis.restUrl,             targets: [...envTargets] },
+        { key: 'UPSTASH_REDIS_REST_TOKEN',             value: redis.restToken,           targets: [...envTargets] },
+        { key: 'MASTER_PASSWORD',                      value: passwordHash,              targets: [...envTargets] },
+        { key: 'VOZZYSMART_API_KEY',                   value: `vsm_${crypto.randomUUID().replace(/-/g, '')}`, targets: [...envTargets] },
+        { key: 'SETUP_COMPLETE',                       value: 'true',                    targets: [...envTargets] },
+        { key: 'INSTALLER_ENABLED',                    value: 'false',                   targets: [...envTargets] },
+        { key: 'VERCEL_API_TOKEN',                     value: vercel.token,              targets: [...envTargets] },
+        { key: 'SUPABASE_ACCESS_TOKEN',                value: supabase.pat,              targets: [...envTargets] },
+        { key: 'GITHUB_TOKEN',                         value: github.token,              targets: [...envTargets] },
+        { key: 'GITHUB_REPO_FULL_NAME',                value: github.repoFullName,       targets: [...envTargets] },
       ];
 
-      console.log('[provision] 📍 Step 3/15: Upserting', envVars.length, 'env vars...');
+      // 1. Confirma todas as env vars via upsert (projeto já existe, sem nenhum deploy ainda)
+      console.log('[provision] 📍 Inserindo', envVars.length, 'env vars antes do primeiro deploy...');
       await upsertProjectEnvs(vercel.token, vercelProject.projectId!, envVars, vercelProject.teamId);
-      console.log('[provision] ✅ Step 3/15: Env vars upserted');
+      console.log('[provision] ✅ Env vars inseridas com sucesso');
 
-      // Desabilita Deployment Protection para permitir acesso de serviços M2M (QStash)
-      // Isso é necessário para que workflows e webhooks funcionem corretamente
-      console.log('[provision] 📍 Step 3/15: Disabling Deployment Protection...');
+      // 2. Desabilita Deployment Protection para M2M (QStash, webhooks)
+      console.log('[provision] 📍 Disabling Deployment Protection...');
       const protectionResult = await disableDeploymentProtection(
         vercel.token,
         vercelProject.projectId!,
@@ -689,20 +706,18 @@ export async function POST(req: Request) {
       );
       if (!protectionResult.ok) {
         console.warn('[provision] ⚠️ Não foi possível desabilitar Deployment Protection:', protectionResult.error);
-        // Não falha a instalação - apenas loga o warning
-        // O usuário pode desabilitar manualmente se necessário
       } else {
-        console.log('[provision] ✅ Deployment Protection desabilitado com sucesso');
+        console.log('[provision] ✅ Deployment Protection desabilitado');
       }
 
-      console.log('[provision] ✅ Step 3/15: Setup Env Vars - COMPLETO');
+      console.log('[provision] ✅ Step 8/15: Env Vars configuradas - COMPLETO');
       stepIndex++;
 
       // Step: Configure GitHub Secrets
       console.log('[provision] 📍 Configuring GitHub Secrets...');
       try {
         const { addRepoSecrets } = await import('@/lib/installer/github');
-        const [owner, repo] = github.repoFullName.split('/');
+        // owner e repo já foram declarados no início do try
         
         const secretsResult = await addRepoSecrets({
           token: github.token,
@@ -805,7 +820,12 @@ export async function POST(req: Request) {
         redeploy = await triggerProjectRedeploy(vercel.token, vercelProject.projectId!, vercelProject.teamId);
         
         if (!redeploy) {
-          // Projeto novo sem deployments - criar primeiro deployment manualmente
+          // Verificação de segurança: garante que temos o repoId antes de chamar createFirstDeployment
+          if (!vercelProject.repoId) {
+            console.error('[provision] ❌ ERRO CRÍTICO: vercelProject.repoId está ausente no Step 11');
+            throw new Error('Falha no deployment: o ID do repositório GitHub não está disponível. Por favor, reinicie a instalação.');
+          }
+
           console.log('[provision] ℹ️ Step 3/15: Projeto novo sem deployments, criando primeiro deployment...');
           
           const { createFirstDeployment } = await import('@/lib/installer/vercel');
@@ -817,6 +837,7 @@ export async function POST(req: Request) {
               type: 'github',
               repo: github.repoFullName,
               ref: 'main',
+              repoId: vercelProject.repoId,
             },
             vercelProject.teamId
           );

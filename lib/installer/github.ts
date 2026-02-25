@@ -8,7 +8,7 @@ import { encodeBase64, decodeUTF8 } from 'tweetnacl-util';
 
 const GITHUB_API_BASE = 'https://api.github.com';
 const TEMPLATE_OWNER = 'VozzyUp';
-const TEMPLATE_REPO = 'vozzysmart_template';
+const TEMPLATE_REPO = 'vozzySmart_temp';
 
 export interface GitHubUser {
   login: string;
@@ -358,6 +358,41 @@ export async function addRepoSecrets(params: {
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao adicionar secrets';
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Obtém informações detalhadas de um repositório
+ */
+export async function getRepoInfo(params: {
+  token: string;
+  owner: string;
+  repo: string;
+}): Promise<{ ok: true; repo: GitHubRepo } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${GITHUB_API_BASE}/repos/${params.owner}/${params.repo}`,
+      {
+        headers: {
+          Authorization: `Bearer ${params.token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      return {
+        ok: false,
+        error: (errorData as { message?: string }).message || 'Erro ao obter informações do repositório',
+      };
+    }
+
+    const repo = (await res.json()) as GitHubRepo;
+    return { ok: true, repo };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao obter informações do repositório';
     return { ok: false, error: message };
   }
 }

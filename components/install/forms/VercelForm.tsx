@@ -147,37 +147,50 @@ export function VercelForm({ data, onComplete, onBack, showBack }: FormProps) {
             </ol>
           </div>
 
-          {/* Passo 2: Instalar e Conectar GitHub - CRÍTICO */}
+          {/* Passo 2: Instalar integração GitHub */}
           <div className="border-t border-[var(--br-dust-gray)]/20 pt-3">
             <p className="text-xs font-mono text-[var(--br-neon-magenta)] font-bold mb-1.5">
               2. INSTALAR INTEGRAÇÃO GITHUB ⚠️ OBRIGATÓRIO
             </p>
             <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1 list-disc list-inside ml-2">
               <li>
-                <strong className="text-[var(--br-hologram-white)]">Primeiro:</strong> Instale o app{' '}
+                Acesse{' '}
                 <a href="https://github.com/apps/vercel" target="_blank" rel="noopener noreferrer" className="text-[var(--br-neon-magenta)] hover:underline">
                   github.com/apps/vercel
                 </a>
               </li>
               <li>Clique em <strong className="text-[var(--br-hologram-white)]">Install</strong> ou <strong className="text-[var(--br-hologram-white)]">Configure</strong></li>
-              <li>Selecione sua conta/organização</li>
-              <li>Autorize o acesso aos repositórios</li>
-              <li>
-                <strong className="text-[var(--br-hologram-white)]">Depois:</strong> Conecte sua conta em{' '}
-                <a href="https://vercel.com/account/login-connections" target="_blank" rel="noopener noreferrer" className="text-[var(--br-neon-magenta)] hover:underline">
-                  login-connections
-                </a>
-              </li>
+              <li>Selecione sua conta/organização e autorize o acesso aos repositórios</li>
             </ol>
             <p className="text-xs font-mono text-[var(--br-neon-orange)] mt-1.5 italic">
               * Sem a integração instalada, o deploy automático falhará
             </p>
           </div>
 
-          {/* Passo 3: Gerar Token */}
+          {/* Passo 3: Conectar GitHub como Login Connection - CRÍTICO */}
           <div className="border-t border-[var(--br-dust-gray)]/20 pt-3">
             <p className="text-xs font-mono text-[var(--br-neon-magenta)] font-bold mb-1.5">
-              3. GERAR TOKEN
+              3. CONECTAR GITHUB À CONTA VERCEL ⚠️ OBRIGATÓRIO
+            </p>
+            <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1 list-disc list-inside ml-2">
+              <li>
+                Acesse{' '}
+                <a href="https://vercel.com/account/login-connections" target="_blank" rel="noopener noreferrer" className="text-[var(--br-neon-magenta)] hover:underline">
+                  vercel.com/account/login-connections
+                </a>
+              </li>
+              <li>Clique em <strong className="text-[var(--br-hologram-white)]">Connect</strong> ao lado do <strong className="text-[var(--br-hologram-white)]">GitHub</strong></li>
+              <li>Autorize e confirme a conexão</li>
+            </ol>
+            <p className="text-xs font-mono text-[var(--br-neon-orange)] mt-1.5 italic">
+              * Sem esta conexão, o wizard não conseguirá linkar seu repositório ao projeto Vercel
+            </p>
+          </div>
+
+          {/* Passo 4: Gerar Token */}
+          <div className="border-t border-[var(--br-dust-gray)]/20 pt-3">
+            <p className="text-xs font-mono text-[var(--br-neon-magenta)] font-bold mb-1.5">
+              4. GERAR TOKEN
             </p>
             <ol className="text-xs font-mono text-[var(--br-muted-cyan)] space-y-1 list-disc list-inside ml-2">
               <li>
@@ -197,6 +210,7 @@ export function VercelForm({ data, onComplete, onBack, showBack }: FormProps) {
           </div>
         </div>
       </details>
+
       )}
     </div>
   );

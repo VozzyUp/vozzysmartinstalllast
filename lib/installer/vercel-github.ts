@@ -5,6 +5,55 @@
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
 
+/**
+ * Cria um projeto Vercel SEM linkar ao GitHub.
+ * Isso evita o auto-deploy prematuro (antes das env vars estarem configuradas).
+ * Após criar o projeto e configurar as env vars, use createFirstDeployment para criar o deployment.
+ */
+export async function createVercelProjectOnly(params: {
+  vercelToken: string;
+  projectName: string;
+  teamId?: string;
+}): Promise<{ ok: true; projectId: string } | { ok: false; error: string }> {
+  try {
+    const url = new URL(`${VERCEL_API_BASE}/v10/projects`);
+    if (params.teamId) {
+      url.searchParams.set('teamId', params.teamId);
+    }
+
+    const body = {
+      name: sanitizeVercelProjectName(params.projectName),
+      framework: 'nextjs',
+      buildCommand: 'npm run build',
+      devCommand: 'npm run dev',
+      installCommand: 'npm install',
+      outputDirectory: '.next',
+      // NÃO incluímos gitRepository aqui para evitar auto-deploy.
+      // O link com GitHub será feito via deploy manual logo abaixo.
+    };
+
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${params.vercelToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      return { ok: false, error: `Erro ao criar projeto Vercel: ${errorText}` };
+    }
+
+    const project = (await res.json()) as { id: string; name: string };
+    return { ok: true, projectId: project.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao criar projeto Vercel';
+    return { ok: false, error: message };
+  }
+}
+
 interface VercelGitRepo {
   type: 'github';
   repo: string; // owner/repo format
@@ -68,6 +117,17 @@ export async function connectVercelToGitHub(params: {
 
     if (!res.ok) {
       const errorText = await res.text();
+
+      // Erro específico: conta Vercel não tem GitHub conectado
+      if (errorText.includes('Login Connection') || errorText.includes('login-connections')) {
+        return {
+          ok: false,
+          error:
+            'Sua conta Vercel não está conectada ao GitHub. ' +
+            'Acesse vercel.com/account/login-connections, clique em "Connect" ao lado do GitHub e tente novamente.',
+        };
+      }
+
       return { ok: false, error: `Erro ao conectar Vercel ao GitHub: ${errorText}` };
     }
 

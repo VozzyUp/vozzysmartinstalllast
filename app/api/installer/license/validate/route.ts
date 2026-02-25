@@ -12,6 +12,16 @@ export async function POST(request: Request) {
       );
     }
 
+    // Bypass para desenvolvimento local
+    const devLicenseCode = process.env.DEV_LICENSE_CODE;
+    if (devLicenseCode && code === devLicenseCode) {
+      return NextResponse.json({
+        valid: true,
+        customerName: 'Dev Local',
+        customerEmail: 'dev@localhost',
+      });
+    }
+
     const supabase = getSupabaseAdmin();
     if (!supabase) {
       return NextResponse.json(
