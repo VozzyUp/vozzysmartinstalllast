@@ -115,7 +115,7 @@ const STEPS: Step[] = [
 import crypto from 'crypto'
 
 async function hashPassword(password: string): Promise<string> {
-  const SALT = '_vozzysmart_salt_2026';
+  const SALT = '_smartzap_salt_2026';
   return crypto.createHash('sha256').update(password + SALT).digest('hex');
 }
 
