@@ -60,6 +60,7 @@ export interface InstallData {
   githubRepoFullName: string; // owner/repo format
   // Vercel and other services
   vercelToken: string;
+  vercelProjectName?: string; // Nome real do projeto criado na Vercel (pode diferir do githubRepoName)
   supabasePat: string;
   qstashToken: string;
   redisRestUrl: string;
@@ -77,6 +78,7 @@ export const EMPTY_INSTALL_DATA: InstallData = {
   githubRepoUrl: '',
   githubRepoFullName: '',
   vercelToken: '',
+  vercelProjectName: '',
   supabasePat: '',
   qstashToken: '',
   redisRestUrl: '',
@@ -172,6 +174,7 @@ export type InstallAction =
   | { type: 'SUBMIT_STEP'; data: Partial<InstallData> }  // ✅ Atômico: update + next
   | { type: 'START_PROVISIONING' }
   | { type: 'PROGRESS'; progress: number; title: string; subtitle: string }
+  | { type: 'UPDATE_PROVISIONING_DATA'; data: Partial<InstallData> }
   | { type: 'ERROR'; returnToStep: InstallStep; error: string; errorDetails?: string }
   | { type: 'COMPLETE' }
   | { type: 'RETRY' }
@@ -195,6 +198,10 @@ export const actions = {
     title,
     subtitle,
   }),
+  updateProvisioningData: (data: Partial<InstallData>): InstallAction => ({
+    type: 'UPDATE_PROVISIONING_DATA',
+    data,
+  }),
   error: (error: string, returnToStep: InstallStep, errorDetails?: string): InstallAction => ({
     type: 'ERROR',
     error,
@@ -214,6 +221,7 @@ export const actions = {
 export type ProvisionStreamEvent =
   | { type: 'progress'; progress: number; title: string; subtitle: string }
   | { type: 'error'; error: string; returnToStep: InstallStep; errorDetails?: string }
+  | { type: 'data'; data: Partial<InstallData> }
   | { type: 'complete' };
 
 // Type guards para ProvisionStreamEvent
@@ -223,6 +231,10 @@ export function isProgressEvent(e: ProvisionStreamEvent): e is { type: 'progress
 
 export function isErrorEvent(e: ProvisionStreamEvent): e is { type: 'error'; error: string; returnToStep: InstallStep; errorDetails?: string } {
   return e.type === 'error';
+}
+
+export function isDataEvent(e: ProvisionStreamEvent): e is { type: 'data'; data: Partial<InstallData> } {
+  return e.type === 'data';
 }
 
 export function isCompleteEvent(e: ProvisionStreamEvent): e is { type: 'complete' } {

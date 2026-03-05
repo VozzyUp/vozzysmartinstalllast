@@ -22,6 +22,7 @@ import {
   actions,
   isProgressEvent,
   isErrorEvent,
+  isDataEvent,
   isCompleteEvent,
 } from '@/lib/installer/types';
 import { InstallLayout } from '@/components/install/InstallLayout';
@@ -132,6 +133,8 @@ export default function InstallPage() {
       dispatch(actions.progress(event.progress, event.title, event.subtitle));
     } else if (isErrorEvent(event)) {
       dispatch(actions.error(event.error, event.returnToStep, event.errorDetails));
+    } else if (isDataEvent(event)) {
+      dispatch(actions.updateProvisioningData(event.data));
     } else if (isCompleteEvent(event)) {
       dispatch(actions.complete());
     }

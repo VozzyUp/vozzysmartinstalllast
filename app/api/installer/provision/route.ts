@@ -73,13 +73,14 @@ const ProvisionSchema = z.object({
 // =============================================================================
 
 interface StreamEvent {
-  type: 'progress' | 'error' | 'complete';
+  type: 'progress' | 'error' | 'data' | 'complete';
   progress?: number;
   title?: string;
   subtitle?: string;
   error?: string;
   errorDetails?: string;
   returnToStep?: InstallStep;
+  data?: Partial<import('@/lib/installer/types').InstallData>;
 }
 
 interface Step {
@@ -470,11 +471,17 @@ export async function POST(req: Request) {
       vercelProject = {
         ...vercelProject,
         projectId: createProjectResult.projectId,
-        projectName: github.repoName,
+        projectName: createProjectResult.projectName,
         repoId: repoInfo.repo.id,
       };
 
-      console.log('[provision] ✅ Step 3/15: Projeto Vercel criado (sem deploy)', { projectId: createProjectResult.projectId });
+      // Envia o nome real do projeto Vercel para o frontend
+      await sendEvent({
+        type: 'data',
+        data: { vercelProjectName: createProjectResult.projectName },
+      });
+
+      console.log('[provision] ✅ Step 3/15: Projeto Vercel criado (sem deploy)', { projectId: createProjectResult.projectId, projectName: createProjectResult.projectName });
       stepIndex++;
 
       // Step 4: Validate Supabase PAT

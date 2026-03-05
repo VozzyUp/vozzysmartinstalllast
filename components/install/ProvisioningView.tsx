@@ -99,6 +99,11 @@ export function ProvisioningView({ data, progress, title, subtitle, onProgress, 
             try {
               const event: ProvisionStreamEvent = JSON.parse(line.slice(6));
               
+              // Update local data reference if we receive data updates
+              if (event.type === 'data') {
+                Object.assign(data, event.data);
+              }
+              
               if (event.type === 'complete') {
                 // Redeem license before finishing
                 try {

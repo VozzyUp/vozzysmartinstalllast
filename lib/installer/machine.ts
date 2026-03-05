@@ -230,6 +230,18 @@ export function installReducer(state: InstallState, action: InstallAction): Inst
       };
     }
 
+    case 'UPDATE_PROVISIONING_DATA': {
+      if (state.phase !== 'provisioning') {
+        debugLog('[Installer] UPDATE_PROVISIONING_DATA ignorado - não está em provisioning');
+        return state;
+      }
+
+      return {
+        ...state,
+        data: { ...state.data, ...action.data },
+      };
+    }
+
     case 'ERROR': {
       // ERROR pode acontecer de qualquer fase (ex: erro de rede no collecting)
       return {

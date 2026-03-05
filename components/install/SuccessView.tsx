@@ -43,8 +43,9 @@ export function SuccessView({ name, data }: SuccessViewProps) {
   };
 
   const handleGoToDashboard = () => {
-    // Redireciona para o URL do Vercel
-    window.open(`https://${data.githubRepoName}.vercel.app`, '_blank');
+    // Redireciona para o URL do Vercel (usa o nome real do projeto, não o nome do repo GitHub)
+    const projectName = data.vercelProjectName || data.githubRepoName;
+    window.open(`https://${projectName}.vercel.app`, '_blank');
   };
 
   return (
@@ -106,12 +107,12 @@ export function SuccessView({ name, data }: SuccessViewProps) {
                   ACESSO AO SISTEMA
                 </p>
                 <a
-                  href={`https://${data.githubRepoName}.vercel.app`}
+                  href={`https://${data.vercelProjectName || data.githubRepoName}.vercel.app`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block text-sm font-mono text-[var(--br-hologram-white)] hover:text-[var(--br-neon-cyan)] transition-colors break-all"
                 >
-                  https://{data.githubRepoName}.vercel.app
+                  https://{data.vercelProjectName || data.githubRepoName}.vercel.app
                 </a>
               </div>
 

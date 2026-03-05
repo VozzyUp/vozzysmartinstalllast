@@ -14,7 +14,7 @@ export async function createVercelProjectOnly(params: {
   vercelToken: string;
   projectName: string;
   teamId?: string;
-}): Promise<{ ok: true; projectId: string } | { ok: false; error: string }> {
+}): Promise<{ ok: true; projectId: string; projectName: string } | { ok: false; error: string }> {
   try {
     const url = new URL(`${VERCEL_API_BASE}/v10/projects`);
     if (params.teamId) {
@@ -47,7 +47,7 @@ export async function createVercelProjectOnly(params: {
     }
 
     const project = (await res.json()) as { id: string; name: string };
-    return { ok: true, projectId: project.id };
+    return { ok: true, projectId: project.id, projectName: project.name };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro ao criar projeto Vercel';
     return { ok: false, error: message };
